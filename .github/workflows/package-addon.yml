@@ -23,6 +23,7 @@ jobs:
           python-version: '3.13'
       - name: Validate sources and package public add-on only
         run: |
+          python -m pip install --only-binary=:all: numpy==2.3.4
           python tools/test_first_run.py
           python tools/test_find_animations.py
           python tools/package_addon.py
