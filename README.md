@@ -45,6 +45,10 @@ git -C Ruri.RipperHook submodule update --init Source/Endfield-GameHook
 
 ## 装它
 
+本分支面向 Blender 5.3 的安装包由 **Actions → Package Blender Add-on** 生成。
+新用户请先阅读 [INSTALL.md](INSTALL.md)：插件 ZIP 与后端分开安装，公开后端
+PureRelease 和私有 Endfield 运行时是两种不同产物。
+
 ### 两边都要的一步
 
 工具 DLL 从 https://github.com/FractalTools/Ruri.RipperHook/actions 下载构建产物,解压到
