@@ -30,6 +30,7 @@ HOLDS_PROCESS_STATE = True
 
 _runtime_set = False
 _bridge_type = None
+_locale = ""
 _bin_dir_override = None
 _bin_dir_provider = None
 _bin_dir_hint = ("Set it in the RuriRipper panel, or set the RURI_RIPPERHOOK_BIN "
@@ -350,6 +351,7 @@ def _ensure_runtime():
     # and modules build into one folder. Nothing above this line names a decoder, and
     # no host carries a path to one: what is in the bin dir is what can be read.
     _bridge_type.LoadDeclaredModules()
+    _bridge_type.SetLocale(_locale)
 
 
 def list_decoders():
@@ -438,8 +440,12 @@ def set_locale(locale):
     machine's: a decoder that joins a roster to its text reads it off the session,
     so switching the application's language switches every roster and nothing else
     has to be told. Pushing the same value again is free."""
-    _ensure_runtime()
-    _bridge_type.SetLocale(str(locale or ""))
+    # Preferences must be usable before a first-run user has selected a backend
+    # or installed pythonnet. Apply this queued value when the bridge first loads.
+    global _locale
+    _locale = str(locale or "")
+    if _bridge_type is not None:
+        _bridge_type.SetLocale(_locale)
 
 
 def _string_array(strings):
