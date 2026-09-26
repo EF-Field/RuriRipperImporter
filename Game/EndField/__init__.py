@@ -1,0 +1,95 @@
+"""Endfield (Arknights: Endfield) -- everything the add-on has for this game and
+nothing else, across every hooked version of it.
+
+Two tabs, neither of which means anything for another title:
+
+``StreamingScene``  the game's own scenes, every kind it ships, switched inside
+               the tab: ``Scene`` the self-contained ones -- pick one from the
+               game's own list and import it whole; ``World`` the open-world maps
+               -- pick one of the places the game itself names in map01/map02 and
+               import that place, at the size the game gives it, out of the game's
+               own chunk format; ``UI`` the lit little stages an interface stands
+               a model on (CharInfo, CharFormation, WeaponInfo), loaded around a
+               character already in the scene.
+               (``scene_state`` + ``scene_importer``,
+                ``ui_scene_state`` + ``ui_scene_importer``)
+``Character``  the SkeletalMorph facial system: browse the emotion/pose/lipsync
+               library, bind its ctrl drivers to a rig, bake its animations.
+               (``skeletal_morph`` + ``morph_state``)
+               The cast browser's own row switches what the tab lists:
+               ``Characters``/``NPCs`` the two casts, ``Story`` the animations story
+               playback uses, filed the way the game files them -- a cutscene by
+               shot / kind / actor, a dialogue timeline by spoken line.
+               (``roster_panel`` + ``story_panel``)
+
+All of it lives here, including the parts that touch no bpy: the game's
+addressable-path conventions and its studio-written MonoBehaviour schemas are
+still ONE GAME'S facts, and ``RuriRipperPyBridge`` -- shared with a host that has no
+such feature -- may not carry them.
+
+Declared as one GAME_MODULE row (see ``Game``), so the core panel reveals both tabs
+exactly while the install in front of it IS Endfield, and never names this game
+itself.
+"""
+
+from __future__ import annotations
+
+from ... import post_panel
+from .. import GameModule, GameTab
+from . import (character_panel, cloth_panel, face_retarget, roster_panel, scene_panel,
+               shader, story_panel)
+
+
+def _register():
+    scene_panel.register()
+    roster_panel.register()
+    character_panel.register()
+    cloth_panel.register()
+    story_panel.register()
+    # CharacterNPR materials build as generated Ruri Uber node groups instead of
+    # the host's Principled fallback -- a graph provider, so the host core stays
+    # game-blind (see shader/__init__ and material_builder.GRAPH_PROVIDERS).
+    shader.register()
+
+
+def _unregister():
+    shader.unregister()
+    story_panel.unregister()
+    cloth_panel.unregister()
+    character_panel.unregister()
+    roster_panel.unregister()
+    scene_panel.unregister()
+
+
+GAME_MODULE = GameModule(
+    # The productName this game's player builds under, as its own app.info states it --
+    # the same string the upstream decoder declares, so the join is equality.
+    game_name="Endfield",
+    label="Endfield",
+    tabs=(
+        GameTab("streamingscene", "StreamingScene",
+                "The game's own scenes: the self-contained ones, and one named place "
+                "of an open-world map at a time",
+                scene_panel.draw_streaming_scene_tab),
+        GameTab("character", "Character",
+                "Drive an imported character's face: the SkeletalMorph "
+                "emotion/pose/lipsync library and its morph animations",
+                character_panel.draw_character_tab),
+        # The post-processing chain is this game's: its generated shader stack owns the
+        # scene's compositor tree and view transform, so the tab that installs and tunes
+        # it is offered only while an Endfield install is in front of the panel.
+        GameTab("post", "Post",
+                "Install this game's post-processing chain on the scene and tune it",
+                post_panel.draw_post_tab),
+    ),
+    # A UI or cutscene clip carries its face in the BONE tracks, so importing one onto
+    # another character needs the performance read off the geometry and restated in that
+    # character's own expression vocabulary. The host's one clip-loading path asks for
+    # this; the maths is the hook's (RipperBlenderBridge.SolveFaceRetarget).
+    face_retarget=face_retarget.provide,
+    # The hair/cloth/accessory chains this game tunes ON the model prefab itself,
+    # which is why they can travel with an import at all (see cloth_panel.provide).
+    secondary_motion=cloth_panel.provide,
+    register=_register,
+    unregister=_unregister,
+)

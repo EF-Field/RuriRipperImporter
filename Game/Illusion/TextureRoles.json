@@ -1,9 +1,0 @@
-{
-  "_comment": "This title's own material-input vocabulary. Its surfaces are authored in a node editor whose normal input is spelled differently from the engine's own, which is why the engine-wide layer underneath does not name it. Only what a name states unambiguously is filed here: the masks and ramps this title's own lighting uses have no meaning outside it and stay in the panel's Unmapped Textures list, which is where a person says what they are.",
-  "textures": {
-    "_NormalMap": {
-      "role": "normal"
-    }
-  },
-  "version": 1
-}

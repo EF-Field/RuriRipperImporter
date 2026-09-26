@@ -1,42 +1,29 @@
-# Blender 5.3 installation (Windows x64)
+# Blender 5.2 legacy install
 
-1. Install Blender 5.3 or newer and Microsoft .NET 10 SDK x64 (includes the
-   .NET and ASP.NET Core runtimes required by the backend). Our regression host
-   is Blender 5.3 Alpha; other builds need their own compatibility checks.
-2. Open this repository's **Actions > Package Blender Add-on**, choose a successful
-   run and download **RuriRipperImporter-Blender53** from Artifacts. Sign in to
-   GitHub to download artifacts. Extract that download once: it contains the
-   installable `RuriRipperImporter-Blender53.zip` and `SHA256SUMS.txt`.
-3. In Blender: **Edit > Preferences > Add-ons > dropdown > Install from Disk**.
-   Select the inner add-on ZIP and enable **RuriRipperImporter**. Its package root
-   is already named correctly; no manual rename or Git clone is needed.
-4. On first enable the plugin attempts to install its Python dependencies into
-   its own workspace. Keep internet access available and inspect the console for
-   dependency errors. Initial offline installation requires pre-provisioned wheels.
-5. Obtain a compatible backend separately and extract it outside the add-on.
-   Set **Ruri-RipperHook Bin Dir** in the add-on preferences to the directory
-   directly containing `Ruri.RipperHook.dll` and
-   `Ruri.RipperHook.CLI.runtimeconfig.json`. Preserve all sibling dependencies.
-   Save preferences and restart Blender after changing backend versions.
-6. Open the 3D Viewport sidebar with **N**, select **RuriRipper**, then **Assets >
-   Add Install**, choose Game Root and build/load the resource index. Import a
-   character before applying animation with **Play On Rig**. Old RCM6 indices
-   should be rebuilt for this Statement backend rather than reused as RCM7.
+Use branch `codex/blender-5.2`, tested with Blender 5.2.2 LTS on Windows x64.
+Do not mix this frontend with the Statement/Blender 5.3 backend.
 
-## Which backend?
+1. Download the **RuriRipperImporter-Blender52** Actions artifact from this branch.
+2. Extract the outer Actions download; install the inner
+   `RuriRipperImporter-Blender52.zip` in Blender Preferences > Add-ons.
+3. Endfield support is a separate **private** download from the
+   `KawakazeNotFound/Endfield-GameHook` repository's same branch:
+   **Endfield-Blender52-Runtime-Windows-x64**.
+4. Extract its inner ZIP and set the addon's backend Bin Dir to its `runtime`
+   directory, containing the accepted legacy `Ruri.RipperHook.dll`.
+   SHA256: `9F9355D95C5FF7015399128DE1444345712E7799ADE4AD248B34D45B505C1F95`.
+5. Install .NET 10 runtime/SDK and allow the existing Python dependency bootstrap
+   to provision its dependencies. Restart Blender before testing a clean scene.
 
-- The public backend repository's **Build Hooks** workflow emits
-  **RipperHook-PureRelease** (and a separate FModel artifact). PureRelease excludes
-  private game adapters. It is not the Endfield-enabled backend.
-- Endfield support requires access to `KawakazeNotFound/Endfield-GameHook`, or a
-  separately supplied compatible private runtime. Its **Package Verified Runtime**
-  workflow emits **Endfield-Statement-Runtime-Windows-x64**, containing
-  `Endfield-Statement-Runtime.zip`. Extract that inner ZIP and select its
-  `statement-runtime` folder as Bin Dir. This packages the verified snapshot;
-  it is not a fresh source rebuild. `runtime` is the legacy ABI, not this version.
-- Public frontend packages never contain backend binaries, private sources or
-  game test fixtures. Private artifacts stay in the private repository.
+Actions downloads require GitHub sign-in; private artifacts additionally require
+repository read access. Public installation grants no private repository access.
+No repository visibility or collaborators were changed for this branch.
 
-Actions checks packaging/build boundaries. It does not replace a full Blender
-GUI/material/all-animation regression. The validated animation case is raw
-Attack01, 556 bones, 301 frames at 60 fps with no missing reference paths.
+Source dependency chain: frontend `Ruri.RipperHook` gitlink -> public backend
+`Source/Endfield-GameHook` gitlink -> private source/runtime. Both refs are pinned,
+not floating. Public CI never initializes private submodules.
+
+The legacy shader libraries are included and hash checked during packaging.
+The frontend and shader runtime are restored from the tested legacy baseline;
+this is not the 5.3 legacy-compatibility switch. Existing 5.3 installations should
+stay in their separate portable directory. User scenes are not part of any package.

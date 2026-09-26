@@ -1,181 +1,228 @@
 # RuriRipperImporter
 
-> # 🟦🟧 一个目录,同时是 Blender 插件和 Substance Painter 插件
->
-> **装的是同一份代码。** Blender 从 `scripts/addons` 加载它,Substance Painter 从
-> `python/plugins` 加载**同一个目录**(做一个目录联接就行,见下)。
->
-> 面板长得一样、按钮一样、流程一样 —— 在哪边点,做的都是同一件事,区别只在最后落成什么:
->
-> | 你按下 Import 之后 | 得到 |
-> |---|---|
-> | **Blender** | 骨架 + 蒙皮网格 + 材质 + 形态键 + 动画,一整套在场景里 |
-> | **Substance Painter** | 一个工程,模型已经在里面,**每个材质一个 Texture Set,并且接好了这个游戏的着色器** |
->
-> 不用装两个插件、不用记两套操作,也不用先倒进 Blender 再手动搬去 Painter。
+## Blender 5.2 维护分支
 
-**指着游戏安装目录,把里面的角色和场景直接搬进你手上这个软件。**
-不导 FBX,不转格式,不用先开 Unity。
+`codex/blender-5.2` 使用旧桥接 ABI 和原版 5.2 着色器，实测 Blender 5.2.2。
+安装与公私有依赖说明见 [INSTALL.md](INSTALL.md)。Actions 产物名带 `Blender52`，
+请勿搭配 main 的 Statement / Blender 5.3 后端。五个着色器模板随包完整提供。
 
-当前生成着色栈要求 Blender **5.3+**；Substance Painter **12** 为上游验证版本。
+**Unity 原生 YAML 直进 Blender,无损。不走 FBX,不重导出,不绕弯。**
 
-### 本分支的私有后端
+Unity 在「Force Text」序列化模式下,资源本身就是 YAML 文本 —— `.prefab` /
+`.asset` / `.mat` / `.anim` / `.controller` 全是人类可读的明文。这个 Blender 插件
+**直接读 Unity 这套原生 YAML**,把网格、真实骨架、带原始贴图的材质、以及全部动画
+clip 原样搬进 Blender。
 
-依赖采用三层结构：**公开插件 → 公开 `Ruri.RipperHook` 后端 → 私有
-`Endfield-GameHook` 子模块**。公开仓库只记录子模块地址和提交指针，
-不包含私有解密实现、私有 DLL 或游戏测试数据。
+> FBX 那套工作流会给你重新绑骨、搞坏法线、丢顶点流、改骨骼名、再塞进一个瞎猜的坐标系。
+> RuriRipperImporter 直接读「真相本身」—— Unity 自己的序列化文本 —— 忠实重建模型。
+> **去他妈的 FBX 赶紧死。**
 
-```sh
-git submodule update --init Ruri.RipperHook
-# 下面这一步需要私有仓库访问权限：
-git -C Ruri.RipperHook submodule update --init Source/Endfield-GameHook
-```
-
-新版 Kernel/Host 插件的 **Bin Dir** 指向
-`Ruri.RipperHook/Source/Endfield-GameHook/statement-runtime` 目录。
-`runtime` 目录是旧接口版本，留给原有 Blender 5.2 安装，两者请勿混用。
-后端源码构建说明见 `Ruri.RipperHook/Source/Build/README.md`。
-其他来源仍按下方说明选择对应后端。公开发布包应排除私有子模块及其构建产物。
-
-本分支新增动作播放帧率同步：以动作自身采样率设置时间轴，避免 60 Hz 动作
-在 24 fps 场景中慢放。验证使用 Blender 5.3.0 Alpha；参考数据仅用于结果比较，
-不参与动作生成。具体范围见 `docs/STATEMENT-MIGRATION.md`。
+基于 Blender **5.1** 开发验证(4.2+ 可用)。
 
 ---
 
-## 装它
+## 它能导入什么
 
-本分支面向 Blender 5.3 的安装包由 **Actions → Package Blender Add-on** 生成。
-新用户请先阅读 [INSTALL.md](INSTALL.md)：插件 ZIP 与后端分开安装，公开后端
-PureRelease 和私有 Endfield 运行时是两种不同产物。
+| Unity 数据 | Blender 结果 |
+|---|---|
+| `.prefab` Transform 层级(class 1/4) | 骨架,每个 transform 一根骨,精确 rest 矩阵 |
+| `SkinnedMeshRenderer`(137)+ Mesh `.asset`(43) | 蒙皮网格:坐标、全部 UV 通道、顶点色、蒙皮权重、blendshape |
+| `LODGroup`(205) | 只导 **LOD0**;LOD1+ 和 `ShadowsOnly` 阴影代理网格直接丢弃 |
+| `MeshRenderer`/`MeshFilter`(23/33) | 静态网格,放到对应节点变换上 |
+| `.mat` 材质 | Principled BSDF;自动识别 base color / normal / emission 贴图 |
+| 贴图(`.png`,经 `.meta` 的 GUID) | 加载并连线;法线贴图设为 Non-Color |
+| Animator(95)→ `.controller` → `.anim`(74) | controller 引用的每个 clip 烘焙成一个 action;blendshape 曲线驱动 shape key |
+| MonoBehaviour 等纯引擎数据 | 按设计跳过 |
 
-### 两边都要的一步
-
-工具 DLL 从 https://github.com/FractalTools/Ruri.RipperHook/actions 下载构建产物,解压到
-任意目录 —— 面板里那个 **Bin Dir** 填的就是它。做一次,两个软件共用。
-
-### Blender
-
-**编辑 ▸ 偏好设置 ▸ 插件 ▸ 安装…** → 选 `RuriRipperImporter` 文件夹或 zip → 勾选启用。
-
-面板在 **3D 视图 ▸ 按 N ▸ 侧栏的 `RuriRipper` 页签**。
-
-> **OneDrive 注意**:`%APPDATA%\Blender` 被 OneDrive 同步的话,Blender 的「从磁盘安装」
-> 可能静默解压失败。要么先暂停 OneDrive,要么设环境变量
-> `BLENDER_USER_SCRIPTS=D:\某个不同步的路径`,把文件夹丢进它的 `addons\` 里。
-
-### Substance Painter
-
-**不要复制一份**,做个目录联接指到 Blender 那份(管理员 CMD 里跑一次):
-
-```bash
-mklink /J "%USERPROFILE%\Documents\Adobe\Adobe Substance 3D Painter\python\plugins\RuriRipperImporter" "<你的 Blender addons 目录>\RuriRipperImporter"
-```
-
-然后开 Painter → 在 **Python 菜单里勾上 `RuriRipperImporter`** → 重启 Painter。
-
-面板在**右侧面板条**上,图标是 **R**(关掉了也用它开回来)。
+**贴图识别**(按优先级,第一个有值的属性即采用):
+- Base color:`_MainTex`、`_BaseMap`、`_BaseColorMap`、`_Albedo`、`_DiffuseMap` …
+- Normal:`_BumpMap`、`_NormalMap`、`_NormalTex` …
+- Emission:`_EmissionMap`、`_EmissiveMap` …
 
 ---
 
-## 用它
+## 安装
 
-面板从上往下就是流程,两边一模一样:
+1. 启用插件:Blender → **编辑 ▸ 偏好设置 ▸ 插件 ▸ 安装…** → 选 `RuriRipperImporter`
+   文件夹/zip → 勾选启用 **RuriRipperImporter**。
+2. 导入入口:**文件 ▸ 导入 ▸ Unity Asset (.prefab / .asset / .anim / .controller)**。
+3. https://github.com/FractalTools/Ruri.RipperHook/actions 配置好构建的工具dll路径
 
-1. **Assets 页签**里 **Add Install**,**Game Root** 指到游戏安装目录 —— 插件读安装自己
-   发布的身份,自动挑好读取器。
-2. **Load** 一次:没有 cabmap(这个安装的资源索引)就现建一个,有就直接读。
-3. 上面一排页签变成**这个安装能给的东西**。
-4. 列表里点一行 → 底下的导入选项 → **Import Selected**(或 **Import Everything Listed**)。
+插件会从你选的文件向上自动定位工程的 `Assets/` 根目录,并通过同名 `.meta` 里的 GUID
+解析每一个贴图 / clip / avatar(只有引用未命中时才扩大扫描范围)。
 
-### 页签是算出来的,不是写死的
-
-**有哪些页签 = 这个游戏公布了什么 × 这个软件做得了什么。** 没有哪一行代码写着「终末地有
-Character 页签」—— 读取器公布了一份名册,名册这个页签就亮;它没公布表情库,表情页签就不在。
-所以每个游戏看到的页签不一样,同一个游戏在两个软件里看到的也不一样,而且**装一个新游戏不需要
-改插件**。
-
-你可能看到的页签:
-
-| 页签 | 是什么 | 按下去 |
-|---|---|---|
-| **Assets** | 整个安装的资源浏览器:搜名字、按类型过滤、进文件夹、多选 | Import Selected |
-| **Character** | 这个游戏的名册 | Import Selected |
-| **Scene** | 场景 / 地点 / 场景里的摆放 | Import Selected |
-| **Catalog** | 角色是拼出来的那种游戏,这里是部件清单 | Import Selected |
-| **Animations** | 这个安装的动作库 | Play On Rig(先选中一副骨架) |
-| **Expressions** | 表情库 | Drive This Expression(先选中一个角色) |
-| **Stage** | 剧情单元 / 过场 | **Build Stage** —— 布景、演员、镜头、台词一次摆好,按播放就演 |
-| **Look** | 画面与着色旋钮 | 就地改 |
-| **Diagnostics** | 这个安装关于自己的说明(不是内容) | 只看 |
-
-选中的行**没有**「导入」这个动作时(比如一条表情、一段动作),那个按钮就不在 —— 它有自己的
-动作,不会给你一个按下去什么都不发生的按钮。
+> **OneDrive 注意**:若 `%APPDATA%\Blender` 被 OneDrive 同步,Blender 的「从磁盘安装」
+> 可能静默解压失败。要么先暂停 OneDrive 再装,要么把 Blender 指到非同步目录:设环境变量
+> `BLENDER_USER_SCRIPTS=D:\某非同步路径`,把 `RuriRipperImporter` 文件夹丢进其
+> `addons\` 子目录。
 
 ---
 
-## 有些东西 Painter 那边不出现,这是故意的
+## 用法 —— 一个菜单,四种文件
 
-Painter 没有骨骼、没有时间轴、没有形态键 —— 这不是没做,是**它的 API 里根本没有那个面**
-(Adobe 自己发布的 Python 模块里,`morph` / `blend shape` / `skeleton` / `bone` /
-`animation` / `timeline` 全部零命中)。
+**文件 ▸ 导入 ▸ Unity Asset** 自动识别你给的文件类型:
 
-规矩是:**能跨的全跨,跨不了的整格消失。** 一个需要骨架的页签在 Painter 上不是灰的,是
-不存在的 —— 「这个软件没有放它的地方」这句话,就该长这样。
+| 你选的文件 | 行为 |
+|---|---|
+| **`.prefab`** | 完整模型:骨架 + LOD0 蒙皮网格 + 材质 + **Animator controller 引用的所有 clip**(作为 action) |
+| **`.asset`** | 按 class 判定:Mesh(静态物体)/ AnimationClip / AnimatorController |
+| **`.anim`** | 单个 clip,烘焙成 action 应用到**当前激活的骨架**上 |
+| **`.controller`** | 它引用的**全部** clip,烘焙成 action 应用到当前骨架上 |
+
+先导模型,之后导 clip 或 controller 会直接套到这个骨架上。
+
+clip **只**来自 Animator controller —— 不靠遍历目录瞎猜。Unity 的负数 fileID(controller
+里大量使用)也能正确解析,所以嵌套在状态机和 blend tree 里的 clip 引用全都找得到。
 
 ---
 
 ## 只有 FBX 二进制怎么办
 
-模型在 Unity 工程里只有二进制 `.fbx` 时,附带的
-**`RuriYamlDumper/RuriYamlDumper.cs`** 能在 Unity 里把它转成可读的 YAML:
+如果某个模型在 Unity 工程里只有二进制 `.fbx`,附带的编辑器工具
+**`RuriYamlDumper/RuriYamlDumper.cs`** 能在 Unity 内把它转成同款 YAML —— 等于把手动
+「选中子资源 → Ctrl+D 抽出」对整个模型一次性自动化。
 
 1. 把 `RuriYamlDumper.cs` 丢进 Unity 工程任意 `Editor/` 文件夹。
 2. **Project Settings ▸ Editor ▸ Asset Serialization** 设为 **Force Text**。
-3. Project 窗口右键模型 → **Ruri ▸ Dump Model to YAML (for Blender)**。
-4. 导入生成的 `<model>_yaml/<model>.prefab`。
+3. 在 Project 窗口右键模型 → **Ruri ▸ Dump Model to YAML (for Blender)**。
+4. 用本插件导入生成的 `<model>_yaml/<model>.prefab`。
 
-它会实例化模型、**完全解包** prefab 连接,抽出并重指向每个 Mesh / 内嵌 Material /
-Avatar / AnimationClip,存成扁平 prefab。
+它会实例化模型、**完全解包** prefab 连接(让层级内联展开,而不是只留一个指向 FBX 的瘦
+引用),抽出并重指向每个 Mesh / 内嵌 Material / Avatar / AnimationClip,最后存成扁平
+prefab。已端到端验证:真实角色 FBX → dump → Blender,骨架、贴图、被自身 clip 驱动全部正常。
 
----
-
-## 已知边界
-
-- **默认只要 LOD0**;要别的在导入选项里改 Detail Level,`-1` 是全都要。
-- **`ShadowsOnly` 阴影代理网格**默认丢弃,同样有开关。
-- **顶点法线**解不出可信结果时退回软件自算 —— 宁可让它重算,也不会把垃圾法线塞给你。
-- **切线**不再随网格烘进来:着色栈按 UV 现算,所以改过拓扑的网格不会读到一份过期的切线。
-- **humanoid 动画**完整还原(肌肉、重定向、根运动);前提是 Avatar 在作用域内,找不到时
-  会明确警告,不会静默给你一副不动的骨架。
-- **材质**按角色表接线(base / normal / emission / 打包 PBR 通道);**没有哪一条是靠猜
-  属性名的**,角色表是数据,认不出来的属性会在警告里列出来而不是乱接。要完整还原游戏画面
-  靠的是生成的着色栈,不是拿 Principled 凑。
-- **Stage** 里这个软件演不了的指令(音频、遮罩、口型)会在时间轴上留一个**标记**,标明它
-  在第几帧发生 —— 不会静默丢掉。
-- **两个宿主是同一条规矩**:生成的着色栈**认领它认得的材质**(按材质指向的那个着色器),
-  认不出来的按**角色表**接线。Blender 那边一直如此(认不出就是 Principled),Painter 现在
-  也是:角色表说得出的每一个角色在这个软件里都有对应通道(base / 法线 / 自发光 /
-  粗糙度 / 金属度 / 遮蔽 / 高光 / 不透明 / 高度),所以**没有配方的作品照样导得进模型和材质**,
-  只是穿的是本软件自己的 PBR 着色器而不是复刻的游戏着色器。
-  报告里会写「N 个接到生成的着色器,M 个按角色」,栈在但一个都没认领时还会把
-  **它认得的着色器名**和**这些材质指向的着色器名**并排打出来 —— 该长的是哪一边看得见,
-  不用猜。配方一个作品一份,由生成器写出来落在 `Game/<作品>/shader/Substance/`
-  或该引擎家族共用的 `Game/<引擎>/shader/Substance/`,补配方在生成器仓里做,不在本仓。
+> FBX 模型没有 `LODGroup`,所以会导入所有 LOD —— 只要 LOD0 的话,在 Blender 里把
+> `*_lod1/2/3` 网格物体删掉即可。
 
 ---
 
-## 给要改代码的人
+## 全版本支持(不硬编码 class id)
+
+派发是按 `!u!<id>` 头里那个**跨版本稳定的数字 class id** 来的,经 `class_registry.json`
+解析 —— 这张表由 **1398** 份 Unity TypeTreeDump 类表合并而成(3.4 → 6000.x)。类名在版本
+间会改(id 29 `Scene`→`SceneSettings`、id 1001 `DataTemplate`→`Prefab`);表里把每个历史
+名字都映射到它的 id,所以任何版本的 YAML 都能正确识别类型。有新的 dump 时用
+`python tools/build_class_registry.py` 重新生成。
+
+---
+
+## 原理(关键部分)
+
+- **自研 YAML 解析器** —— 零依赖、单遍扫描,超大十六进制 blob 原样保留。560 KB 的 prefab
+  约 50ms 解析完。负数 fileID、Unity 的同缩进块序列等怪写法全部吃下。
+- **网格解码** —— 按通道表读交错的顶点流,处理打包的 `dimension` 字节、遵守 Unity 的
+  16 字节流对齐、过滤某些 writer 末尾多吐的非法字符。按存储的 AABB 与权重和逐位校验。
+- **坐标转换** —— Unity 左手 Y-up,Blender 右手 Z-up。转换用反射矩阵 `C = swap(Y,Z)` 做
+  共轭 `M_blender = C · M_unity · C`,一次性搞定朝向和手性,无需逐四元数特判;三角形绕序
+  反转以保证法线朝外。
+- **bind-pose 烘焙** —— 顶点通过 `Σ wᵢ · (boneWorldᵢ · bindposeᵢ) · v_local` 变换到 bind
+  姿势的世界空间,无论模型原本在什么坐标系下创作都能与骨架对齐(这些是 3ds Max `Bip001`
+  绑定)。静止姿势下蒙皮变形为单位矩阵 → 精确 bind pose。
+- **动画(全链路 numpy 向量化)** —— 曲线三次 Hermite 求值、TRS 合成、共轭、矩阵→四元数
+  分解全部整通道数组化(分解逐分支复刻 Blender 自己的 Mike-Day 实现,与逐帧
+  `decompose()` 数值等价到 fp32 噪声级);`foreach_set` 批量写 fcurve;Blender 4.4+
+  slotted action。humanoid clip 走完整肌肉重定向(Avatar referential + TwistSolve +
+  根运动轨迹语义),Endfield 风格 rig 另有距离权重 IK 矫正。
+- **三级 clip 数据通道,按可用性自动降级** ——
+  ① 桥模式(cabmap):C# 侧导出时直接把曲线打成 float32 blob 跨 pythonnet 传来,
+  Python 端 `numpy.frombuffer` 零解析(82.6MB YAML 的 clip = 9.2MB blob,导入
+  **26s → 2s**);② 磁盘 `.anim`:编译 regex + numpy C 级字符串转换直取 m_Curve
+  块(与全解析逐位一致,82MB 约 3s,带逐 entry 关键帧计数自校验,任何结构意外自动
+  回退③);③ 通用 YAML 全解析(兜底,永远正确)。
+
+---
+
+## 按游戏解耦的 GUI
+
+hook 是针对具体游戏写的,面板也该是。所以**一个游戏一个文件夹**:`Game/<游戏>/` 里放
+这个游戏专属的 tab、面板和导入通道,`Game/__init__.py` 只是个注册表。
+
+联结方式不是约定而是**同一个字符串**:一个游戏模块的 `game_name` 就是这个游戏 player 的
+Unity productName(`<Product>_Data/app.info` 第二行),也正是上游解码器声明的 `GameName`
+和它 hook id(`产品名_版本`,如 `Endfield_1.4.4`)的前半段。没有映射表、没有别名清单、
+没有模糊匹配。于是:
+
+- **指向哪个安装,就出现哪个游戏的 tab**。选文件夹的那一刻插件读它自己发布的身份
+  (`app.info` 两行 + `globalgamemanagers` 头里的 Unity 版本,两个小文件,亚毫秒),
+  tab 随之改名、解码器随之解析;
+- **每个浏览器 tab 各自一个解码器**。tab = 一个安装,它的 `decoder_id` 只属于它,换 tab
+  不会动别的 tab 的解码器或它已经加载好的 cabmap。手动改也只改当前这一个;
+- **AR 特性不在 UI 里**。它们是宿主能力不是游戏前提,Blender 这条内存路径要哪些由上游
+  `RipperBlenderBridge.HostFeatures` 一处常量声明并强制加载(当前只有
+  `HumanoidToGeneric`——Blender 根本没有 Unity humanoid 这个概念);
+- `cabmap_panel.py`(微内核:身份探测、解码器选择、cabmap 构建/加载、虚拟资源浏览、导入)
+  **代码里出现不了任何游戏名**,加一个游戏 = 新建一个文件夹,核心零改动。
+
+目前 `Game/Endfield/` 提供 StreamingScene(流式场景整图导入)与 Character(SkeletalMorph
+表情系统)两个 tab,`Game/Illusion/` 一个文件夹服务四个同源标题。
+
+**游戏专属代码一律留在插件里,不许进 `RuriRipperPyBridge`。** 共用层是和 Substance Painter
+插件共享的那一半,它只描述 Unity 和 RipperHook 桥本身;Scene / Character 是 Blender
+独有的功能,连其中不碰 bpy 的纯数据部分(寻址路径规则、SkeletalMorph schema)也属于
+「某一个游戏的事实」,放进共用层就是让另一个宿主背不属于它的东西。
+
+---
+
+## 文件清单
+
+```
+RuriRipperImporter/            ← 插件本体(装这个)
+  __init__.py                  ← 单一「Unity Asset」导入算子 + 注册/重载
+  coordinate.py hierarchy.py   ← 共用实现的 mathutils 边界(见下)
+  armature_builder.py mesh_builder.py material_builder.py
+  animation_builder.py prefab_importer.py
+  derived_state.py             ← 派生态调度器:顶点腿/兑现节点/灯表/后处理什么时候重建,
+                                 只在这里回答一次。导入路径只管造东西并 announce,
+                                 面板一行收尾都不写(漏一个入口 = 画面静默缺失)
+  cabmap_panel.py              ← 微内核面板:身份 / 解码器 / cabmap / 浏览 / 导入,零游戏知识
+  Game/                        ← 按游戏解耦的 GUI(见上)
+    __init__.py                ← 注册表:GameModule / GameTab,按 productName 认领
+    Endfield/                  ← Endfield 全版本专属,连不碰 bpy 的部分也在这里
+      __init__.py              ← GAME_MODULE 声明(productName + 两个 tab)
+      scene_panel.py scene_importer.py    场景 tab
+      scene_state.py                      ← 场景 placement(寻址路径与 LOD 规则在 hook 侧)
+      character_panel.py                  表情 tab
+      skeletal_morph.py morph_state.py    ← SkeletalMorph 资产解析与库模型
+  RuriRipperPyBridge/               ← git submodule:与 Painter 插件共用的那一半
+    unity/    Unity YAML 解析、class id 表、GUID 解析、网格解码、
+              Renderer 发现、材质属性、clip 曲线与重锚、Avatar 骨架
+    runtime/  依赖 bootstrap、CoreCLR + RipperHook 桥、列式行表、设置/工作区
+    session/  cabmap 浏览模型
+    math3d/   Unity→Blender / Unity→glTF 坐标空间
+RuriYamlDumper/RuriYamlDumper.cs ← 可选:Unity 端 FBX→YAML 导出工具
+```
 
 克隆时别忘了子模块:
 
 ```bash
-git clone https://github.com/KawakazeNotFound/RuriRipperImporter.git
+git clone --recurse-submodules https://github.com/ShiyumeMeguri/RuriRipperImporter.git
+# 已经克隆过的:
+git submodule update --init --recursive
 ```
+
+`RuriRipperPyBridge` 里**不许出现 bpy/mathutils**(它同时要在 Substance Painter 里跑,那边
+没有这两个东西)。所以 `coordinate.py` / `hierarchy.py` 留在插件里,只做一件事:把共用层
+的 numpy 4x4 在边界上转成 `mathutils.Matrix`。这条规矩由自测本身把关(`test_no_host_imports`
+按 AST 扫全包);共用层自带 106 个自测:
 
 ```bash
-git submodule update --init Ruri.RipperHook
+python RuriRipperPyBridge/run_tests.py
 ```
 
-在克隆目录内执行第二条命令。私有源码按上面的命令单独初始化；无需递归拉取
-后端所有上游私有模块。层界与规矩见 `CLAUDE.md`。
+---
+
+## 限制
+
+- 一个只「引用」二进制 `.fbx` 的 prefab 里没有 YAML 几何数据 —— 导入器会**主动识别**这种
+  thin-PrefabInstance 形状并在警告里直接给出 dumper 操作指引(见上文);数据本身仍需先转一次。
+- 顶点法线:全部标准 `VertexAttributeFormat`(Float32/16、S/UNorm 8/16)+ 打包
+  R10G10B10A2(SNorm/UNorm 双解释试探)都能解码;**任何**解码结果都要过单位向量场信任门,
+  过不了才退回 Blender 自算(私有魔改编码仍会触发退回 —— 永远不会把垃圾法线塞给你)。
+- humanoid 肌肉/重定向:**完整应用**(Avatar referential、swing-twist、TwistSolve、根运动
+  轨迹、Endfield 扩展肌肉枚举重映射与 IK 矫正)。前提是 Avatar 在作用域内(桥模式闭包
+  co-seed / 角色导入时盖章到骨架);找不到 Avatar 时 body 动作丢弃并明确警告。
+- 材质:Principled BSDF 上接 base/normal/emission,外加实测过 HLSL 的打包 PBR 通道
+  (`_MROMap` R=金属 G=粗糙 B=AO、`_MetallicGlossMap` R=金属 A=光滑度、发丝分离法线);
+  未知 shader 家族的打包贴图**不猜通道序**(宁缺勿错)。完整 NPR shader graph 复刻不在范围内。
+- 超大 clip 性能见「原理」一节的三级通道:桥模式 ~2s、磁盘 regex 快路径 ~3s(82MB 实测),
+  纯 Python 全解析仅作兜底。

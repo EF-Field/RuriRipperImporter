@@ -16,7 +16,7 @@ about how a byte becomes a row.
 
 from __future__ import annotations
 
-from ...Kernel.bridge import cabmap_state
+from ...RuriRipperPyBridge.session import cabmap_state
 
 # What the hook publishes, named WITHOUT the game -- every title of this family
 # publishes the same set, each under its own prefix (Ruri.RipperHook.Illusion's
@@ -25,10 +25,11 @@ from ...Kernel.bridge import cabmap_state
 CATALOG = "chara.catalog"
 CAST = "chara.cast"
 PLAN = "chara.plan"
-SEED = "chara.seed"
 PLACES = "scene.places"
 ANIMATIONS = "anime.catalog"
-ACTS = "anime.acts"
+EXPRESSIONS = "face.expressions"
+FACE_PATTERNS = "face.patterns"
+BUNDLE_CABS = "bundle.cabs"
 
 
 def dataset_id(suffix):
@@ -146,3 +147,19 @@ def number(table_, row, column):
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def cabs_for(bundles):
+    """The seed CABs a set of the game's own bundle paths resolves to -- asked of
+    the hook, which owns the rule, rather than re-derived here."""
+    found = table(BUNDLE_CABS, bundle=list(bundles))
+    if found is None:
+        return []
+    seen = set()
+    ordered = []
+    for index in range(len(found)):
+        cab = found.cell(index, "cab")
+        if cab not in seen:
+            seen.add(cab)
+            ordered.append(cab)
+    return ordered

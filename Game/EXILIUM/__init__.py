@@ -4,10 +4,10 @@ nothing else.
 Two tabs, neither of which means anything for another title:
 
 ``Scene``      every scene the game ships, under the path its own catalog states,
-               grouped by the folder tree the game files them in. (``scene``)
+               grouped by the folder tree the game files them in. (``scene_panel``)
 ``Character``  the cast: the units the game lets you field, named through whichever
-               text package the host's locale reads, and every model any of them is
-               built from -- outfits, enemies, summons. (``roster``)
+               text package Blender's locale reads, and every model any of them is
+               built from -- outfits, enemies, summons. (``roster_panel``)
 
 Three facts about this title decide the shape of both, and all three live upstream
 in ``Ruri.RipperHook.EXILIUM`` rather than here:
@@ -26,34 +26,28 @@ exactly while the install in front of it IS this game, and never names it itself
 
 from __future__ import annotations
 
-import importlib
-
-from .. import GameModule, GameSection, GameTab
-
-#: The parts the two tabs are composed of, each with the capability its host must
-#: answer. Imported and registered ONLY when that answer is yes: a panel module is
-#: where its host classes live, and importing one to then not show it is how a
-#: plugin ends up requiring a host feature it never uses.
-#: Both tabs of this game are the same act -- pick one of the things the game's
-#: own catalog names, and load its seed through the kernel's own verb. That needs
-#: nothing of the host the browser does not already need, so both cross and
-#: neither declares a capability.
-SECTIONS = (GameSection("roster"), GameSection("scene"))
-
-_LOADED = []
+from .. import GameModule, GameTab
+from ... import prefab_importer
+from . import mesh_resolver, roster_panel, scene_panel
 
 
 def _register():
-    _LOADED[:] = [importlib.import_module("." + one.id, __name__)
-                  for one in SECTIONS if one.available]
-    for module in _LOADED:
-        module.register()
+    roster_panel.register()
+    scene_panel.register()
+    # A character prefab here carries renderers with no mesh in them: the geometry
+    # is listed beside the rig and attached at run time. The host's ONE prefab path
+    # asks whoever owns the prefab for the missing mesh; this is that answer, and a
+    # prefab keeping no such list simply declines.
+    prefab_importer.register_mesh_resolver(mesh_resolver.provide)
+    prefab_importer.register_detail_rule(mesh_resolver.detail)
 
 
 def _unregister():
-    for module in reversed(_LOADED):
-        module.unregister()
-    _LOADED[:] = []
+    prefab_importer.unregister_detail_rule(mesh_resolver.detail)
+    prefab_importer.unregister_mesh_resolver(mesh_resolver.provide)
+    mesh_resolver.forget()
+    scene_panel.unregister()
+    roster_panel.unregister()
 
 
 GAME_MODULE = GameModule(
@@ -61,14 +55,13 @@ GAME_MODULE = GameModule(
     # the same string the upstream decoder declares, so the join is equality.
     game_name="EXILIUM",
     label="Girls' Frontline 2",
-    sections=SECTIONS,
     tabs=(
         GameTab("scene", "Scene",
                 "Every scene the game ships, under the path its own catalog states",
-                ("scene", "draw")),
+                scene_panel.draw_scene_tab),
         GameTab("character", "Character",
                 "The cast the game lets you field, and every model any of them is built from",
-                ("roster", "draw")),
+                roster_panel.draw_roster),
     ),
     register=_register,
     unregister=_unregister,

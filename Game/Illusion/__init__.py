@@ -21,9 +21,8 @@ Two tabs:
                studio's catalog). Listed only for the titles that ship a studio.
 ``Character``  a character is assembled, not shipped -- one skeleton plus a prefab
                per slot, joined by bone name. Build one from a character card,
-               then browse what she plays and what she was built with: the ONE
-               cast panel's Anim and Face panes, with the studio's own animation
-               catalog beside the engine's answer in the first of them.
+               drive her face through the head's own blend-shape pattern system,
+               and put the catalogued animations on her.
 
 Each title is recognised by the identity its own build carries: a module's name IS
 the productName its player reports, so pointing the panel at the install already
@@ -32,30 +31,16 @@ says which one it is.
 
 from __future__ import annotations
 
-import importlib
+from .. import GameModule, GameTab
+from . import chara_panel, scene_panel
 
-from .. import GameModule, GameSection, GameTab
-from ...Kernel import host as host_port
-
-#: Picking a place and importing it is the browser's own import over the cabs it
-#: resolved to, so every host gets it. A character here is prefabs joined onto
-#: ONE skeleton by bone name and driven through blend-shape patterns, which is a
-#: skeleton's job. Each tab says which, and the module behind it is imported only
-#: where the answer is yes.
 _SCENE_TAB = ("scene", "Scene",
               "The game's own levels and the studio's backgrounds",
-              ("scene", "draw"), None)
+              scene_panel.draw_scene_tab)
 _CHARACTER_TAB = ("character", "Character",
                   "Assemble a character from her card or from the game's own "
-                  "customization catalog, then browse her animations and the "
-                  "expressions she was built with",
-                  ("chara", "draw_tab"), None)
-
-#: A face is not a section of its own: browsing a model's expressions and driving
-#: them is the ONE cast panel's Face pane, over what the hook states about the head.
-SECTIONS = (GameSection("scene"),
-            GameSection("chara"),
-            GameSection("anime", host_port.Timeline))
+                  "customization catalog, then drive her face and her animations",
+                  chara_panel.draw_character_tab)
 
 # The bpy classes are the PACKAGE's, shared by every title in it, and a class
 # registers exactly once -- so the first title carries the real register/unregister
@@ -67,15 +52,16 @@ _registered = []
 def _register():
     if _registered:
         return
-    _registered[:] = [importlib.import_module("." + one.id, __name__)
-                      for one in SECTIONS if one.available]
-    for module in _registered:
-        module.register()
+    scene_panel.register()
+    chara_panel.register()
+    _registered.append(True)
 
 
 def _unregister():
-    for module in reversed(_registered):
-        module.unregister()
+    if not _registered:
+        return
+    chara_panel.unregister()
+    scene_panel.unregister()
     _registered.clear()
 
 
@@ -84,7 +70,6 @@ def _title(game_name, label, tabs):
         game_name=game_name,
         label=label,
         tabs=tuple(GameTab(*tab) for tab in tabs),
-        sections=SECTIONS,
         register=_register,
         unregister=_unregister,
     )
