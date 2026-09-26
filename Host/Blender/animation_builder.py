@@ -14,6 +14,7 @@ matching mesh object is known.
 
 from __future__ import annotations
 
+import math
 import numpy as np
 
 from ...Kernel import statement as kernel_statement
@@ -475,7 +476,12 @@ def adopt_action(owner, action, slot=None, scene=None, frame_range=True):
         return action
     span = action_frame_range(action)
     if span is not None:
-        set_frame_range(scene if scene is not None else bpy.context.scene, span[0], span[1])
+        target_scene = scene if scene is not None else bpy.context.scene
+        rate = float(action.get(SAMPLE_RATE_KEY, 0.0))
+        if math.isfinite(rate) and rate > 0.0:
+            target_scene.render.fps = max(1, round(rate))
+            target_scene.render.fps_base = target_scene.render.fps / rate
+        set_frame_range(target_scene, span[0], span[1])
     return action
 
 

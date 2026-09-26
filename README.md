@@ -17,7 +17,24 @@
 **指着游戏安装目录,把里面的角色和场景直接搬进你手上这个软件。**
 不导 FBX,不转格式,不用先开 Unity。
 
-基于 Blender **5.1+** 和 Substance Painter **12** 验证。
+当前生成着色栈要求 Blender **5.3+**；Substance Painter **12** 为上游验证版本。
+
+### 本分支的私有后端
+
+`Endfield-GameHook` 是可选的私有子模块。公开仓库仅记录其地址和提交指针，
+不包含解密实现、私有 DLL 或游戏测试数据。有访问权限的用户执行：
+
+```sh
+git submodule update --init Endfield-GameHook
+```
+
+新版 Kernel/Host 插件的 **Bin Dir** 指向该子模块的 `statement-runtime` 目录。
+`runtime` 目录是旧接口版本，留给原有 Blender 5.2 安装，两者请勿混用。
+其他来源仍按下方说明选择对应后端。不要将私有子模块内容打进公开发布包。
+
+本分支新增动作播放帧率同步：以动作自身采样率设置时间轴，避免 60 Hz 动作
+在 24 fps 场景中慢放。验证使用 Blender 5.3.0 Alpha；参考数据仅用于结果比较，
+不参与动作生成。具体范围见 `docs/STATEMENT-MIGRATION.md`。
 
 ---
 

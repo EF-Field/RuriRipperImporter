@@ -1,0 +1,3 @@
+[submodule "Endfield-GameHook"]
+	path = Endfield-GameHook
+	url = https://github.com/KawakazeNotFound/Endfield-GameHook.git
