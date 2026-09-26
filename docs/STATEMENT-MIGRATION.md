@@ -4,10 +4,17 @@ Based on upstream `66ea967a797daa8969657aa6d7cd1501cd53845f` without importing t
 legacy integration repository's history. Private implementation and game fixtures
 remain solely in the private submodule. No upstream pull request was submitted.
 
-The backend pins public Ruri.RipperHook `9a9d67f3963d3f52caca10edd476547a282eba21`
-and ShaderDecompiler `6a67d178c5c4530a54d3f086bcb1817a98b85298`, with tested local
-retarget/Statement adapters. It carries Avatar scale/rest data, restores authored
+The public backend fork `KawakazeNotFound/Ruri.RipperHook` is based on upstream
+`9a9d67f3963d3f52caca10edd476547a282eba21` and ShaderDecompiler
+`6a67d178c5c4530a54d3f086bcb1817a98b85298`. Retarget/Statement adapters are now
+committed there, rather than existing only as local patches. It carries Avatar scale/rest data, restores authored
 binding paths, and routes custom clip decoding through the private hook.
+
+The frontend pins the public backend at `Ruri.RipperHook`; that repository pins
+the private `Source/Endfield-GameHook`. No private hook is directly attached to
+the frontend anymore. Actual versions are recorded by the two Git links.
+Game-specific profile recognition is registered by the private adapter; the
+public solver defaults to stock semantics without that adapter.
 
 Validated on Blender 5.3.0 Alpha `73cfbda0a06d`:
 

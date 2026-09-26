@@ -21,16 +21,21 @@
 
 ### 本分支的私有后端
 
-`Endfield-GameHook` 是可选的私有子模块。公开仓库仅记录其地址和提交指针，
-不包含解密实现、私有 DLL 或游戏测试数据。有访问权限的用户执行：
+依赖采用三层结构：**公开插件 → 公开 `Ruri.RipperHook` 后端 → 私有
+`Endfield-GameHook` 子模块**。公开仓库只记录子模块地址和提交指针，
+不包含私有解密实现、私有 DLL 或游戏测试数据。
 
 ```sh
-git submodule update --init Endfield-GameHook
+git submodule update --init Ruri.RipperHook
+# 下面这一步需要私有仓库访问权限：
+git -C Ruri.RipperHook submodule update --init Source/Endfield-GameHook
 ```
 
-新版 Kernel/Host 插件的 **Bin Dir** 指向该子模块的 `statement-runtime` 目录。
+新版 Kernel/Host 插件的 **Bin Dir** 指向
+`Ruri.RipperHook/Source/Endfield-GameHook/statement-runtime` 目录。
 `runtime` 目录是旧接口版本，留给原有 Blender 5.2 安装，两者请勿混用。
-其他来源仍按下方说明选择对应后端。不要将私有子模块内容打进公开发布包。
+后端源码构建说明见 `Ruri.RipperHook/Source/Build/README.md`。
+其他来源仍按下方说明选择对应后端。公开发布包应排除私有子模块及其构建产物。
 
 本分支新增动作播放帧率同步：以动作自身采样率设置时间轴，避免 60 Hz 动作
 在 24 fps 场景中慢放。验证使用 Blender 5.3.0 Alpha；参考数据仅用于结果比较，
@@ -161,11 +166,12 @@ Avatar / AnimationClip,存成扁平 prefab。
 克隆时别忘了子模块:
 
 ```bash
-git clone --recurse-submodules https://github.com/ShiyumeMeguri/RuriRipperImporter.git
+git clone https://github.com/KawakazeNotFound/RuriRipperImporter.git
 ```
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init Ruri.RipperHook
 ```
 
-层界与规矩见 `CLAUDE.md`。
+在克隆目录内执行第二条命令。私有源码按上面的命令单独初始化；无需递归拉取
+后端所有上游私有模块。层界与规矩见 `CLAUDE.md`。
