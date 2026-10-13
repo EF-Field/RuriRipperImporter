@@ -20,6 +20,7 @@ from mathutils import Matrix, Quaternion, Vector
 def arguments():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--backend', required=True, type=Path)
+    p.add_argument('--addon-source', type=Path)
     p.add_argument('--deps', required=True, type=Path)
     p.add_argument('--game-root', required=True, type=Path)
     p.add_argument('--cabmap', required=True, type=Path)
@@ -95,7 +96,7 @@ def compare_attack(rig, reference, animation_builder, rig_identity, host):
 def main():
     args = arguments()
     args.output.mkdir(parents=True, exist_ok=True)
-    source = Path(__file__).resolve().parents[1]
+    source = (args.addon_source or Path(__file__).resolve().parents[1]).resolve()
     os.environ['RURI_RIPPERHOOK_BIN'] = str(args.backend.resolve())
     os.environ['RURI_RIPPER_WORKSPACE'] = str(args.output / 'workspace')
     sys.dont_write_bytecode = True

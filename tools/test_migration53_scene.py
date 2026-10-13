@@ -14,6 +14,7 @@ from mathutils import Vector
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--fixture', required=True, type=Path)
 p.add_argument('--backend', required=True, type=Path)
+p.add_argument('--addon-source', type=Path)
 p.add_argument('--deps', required=True, type=Path)
 p.add_argument('--output', required=True, type=Path)
 p.add_argument('--render', action='store_true')
@@ -24,7 +25,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(args.deps.resolve()))
 os.environ['RURI_RIPPERHOOK_BIN'] = str(args.backend.resolve())
 os.environ['RURI_RIPPER_WORKSPACE'] = str(args.output / 'workspace')
-source = Path(__file__).resolve().parents[1]
+source = (args.addon_source or Path(__file__).resolve().parents[1]).resolve()
 spec = importlib.util.spec_from_file_location('RuriRipperImporter', source / '__init__.py',
                                             submodule_search_locations=[str(source)])
 addon = importlib.util.module_from_spec(spec)
