@@ -1,5 +1,18 @@
 # Blender 5.3 migration candidate
 
+## Adopted mainline, 2026-10-13
+
+The user manually checked the installable candidate and reported that models and
+animations were satisfactory, then selected Blender 5.3 as the primary line.
+`main` is now the 5.3 / Statement development and release line; 5.2 remains a
+separate legacy compatibility-maintenance line. Exact user-tested asset names and
+coverage were not specified. Material/effect/physics/all-character acceptance
+remains separate from this model/animation approval.
+
+Install/import manually. Automatic review launching was discontinued after its
+startup sidebar update crashed this Alpha in a windowless UI context. The
+background scene helper is diagnostic-only and is not part of the add-on ZIP.
+
 Target host is Blender 5.3.0 Alpha `73cfbda0a06d`, explicitly selected by the user.
 Other Alpha/Beta/Release builds are separate compatibility targets.
 
@@ -43,8 +56,8 @@ It is not an extracted game lighting setup, weapon attachment or skill-event
 timeline. Character and weapon are raw clips, not runtime layer blending.
 
 Upstream native vertex trees are runtime-only and deliberately not automatically
-rebuilt on file load. The review launcher explicitly prepares this diagnostic
-fixture's vertex stages. It must not be used as a silent whole-scene rebuild for
+rebuilt on file load. The background diagnostic explicitly prepares its fixture's
+vertex stages. It must not be used as a silent whole-scene rebuild for
 user production files. Ordinary save/reopen alone does not certify outline/fur
 continuity; normal-workflow treatment of this upstream behavior remains a
 separate migration issue.

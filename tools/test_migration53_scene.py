@@ -11,6 +11,9 @@ import sys
 import bpy
 from mathutils import Vector
 
+if not bpy.app.background:
+    raise RuntimeError('This diagnostic is background-only. Install the add-on manually and import in Blender.')
+
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--fixture', required=True, type=Path)
 p.add_argument('--backend', required=True, type=Path)

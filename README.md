@@ -1,5 +1,13 @@
 # RuriRipperImporter
 
+## 项目主线：Blender 5.3
+
+自 2026-10-13 起，`main` 是 Blender 5.3 / Statement 的开发和发布主线。
+`codex/blender-5.2` 保留为旧 ABI 兼容维护线，新功能默认进入 main。
+用户已手动验收模型与动作；材质、特效、物理及其他角色继续分项验证。
+当前实测版本是 5.3 Alpha `73cfbda0a06d`，安装与导入由用户手动完成。
+详见 [迁移与验收记录](docs/MIGRATION53-ACCEPTANCE.md)。
+
 > # 🟦🟧 一个目录,同时是 Blender 插件和 Substance Painter 插件
 >
 > **装的是同一份代码。** Blender 从 `scripts/addons` 加载它,Substance Painter 从
