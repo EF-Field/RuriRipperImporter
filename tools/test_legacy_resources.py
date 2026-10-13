@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-FOLDER = ROOT / 'Game/Endfield/shader/Blender/legacy52'
+FOLDER = ROOT / 'Game/Endfield/Blender/legacy52'
 
 
 class LegacyResources(unittest.TestCase):
@@ -31,7 +31,7 @@ class LegacyResources(unittest.TestCase):
     def test_packager_explicitly_allows_only_shader_template(self):
         import package_addon
         allowed = [p for p in package_addon.PUBLIC_SHADER_LIBRARIES if '/legacy52/' in p]
-        self.assertEqual(allowed, ['Game/Endfield/shader/Blender/legacy52/ruri_character_uber_endfield.blend'])
+        self.assertEqual(allowed, ['Game/Endfield/Blender/legacy52/ruri_character_uber_endfield.blend'])
 
 
 if __name__ == '__main__':

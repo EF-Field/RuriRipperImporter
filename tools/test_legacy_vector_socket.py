@@ -10,7 +10,7 @@ import bpy
 
 root = Path(__file__).resolve().parents[1]
 # Import the adapter without enabling backend-dependent addon bootstrapping.
-parts = ['RuriRipperImporter', 'Game', 'Endfield', 'shader', 'Blender']
+parts = ['RuriRipperImporter', 'Game', 'Endfield', 'Blender']
 for i in range(1, len(parts) + 1):
     name = '.'.join(parts[:i])
     package = types.ModuleType(name)
@@ -22,7 +22,7 @@ for name in ['RuriRipperImporter.Host', host_name]:
     mod.__path__ = []
     sys.modules[name] = mod
 sys.modules[host_name].material_builder = types.ModuleType(host_name + '.material_builder')
-from RuriRipperImporter.Game.Endfield.shader.Blender import compatibility as c
+from RuriRipperImporter.Game.Endfield.Blender import shader_compatibility as c
 if '--original' in sys.argv:
     # Deliberate pre-fix reproduction: this must fail on 5.3.
     c.StableGraph.vtrans = c.StableGraph.__mro__[1].vtrans

@@ -15,4 +15,4 @@ Only the character manifest is activated by the compatibility adapter. The
 runtime includes historical manifests for other stacks, but those stacks are
 not registered and their libraries are intentionally not shipped here.
 No game meshes, textures, animation fixtures or private decoding code are added.
-Adapter changes belong in the sibling `compatibility.py`, not this snapshot.
+Adapter changes belong in the sibling `shader_compatibility.py`, not this snapshot.

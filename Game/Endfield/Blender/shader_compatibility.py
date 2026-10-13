@@ -12,7 +12,7 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import EnumProperty
 
-from .....Host.Blender import material_builder as host
+from ....Host.Blender import material_builder as host
 from .legacy52 import runtime as legacy
 
 MODE = 'ruri_endfield_shader_mode'
@@ -20,6 +20,7 @@ NATIVE_KEY = 'ruri_character_uber_endfield'
 LEGACY_KEY = NATIVE_KEY + '_legacy52'
 _stack = None
 _groups = {}
+_light_signature = None
 
 
 class StableGraph(legacy.G):
@@ -177,7 +178,7 @@ def rebuild_material(mat, mode):
     if mode == 'LEGACY52':
         new = provide(builder, props)
     else:
-        from . import ruri_endfield as native
+        from ..shader import Blender as native
         target = next(s for s in native.STACKS if s.PANEL_KEY == NATIVE_KEY)
         # Preserve the current edited keyword uniforms on a round trip.
         record = {
@@ -249,10 +250,24 @@ def vertices(objects=None, camera=None, refill=False):
 def refresh_lights():
     if any(m.get('ruri_uber_stack') == LEGACY_KEY for m in bpy.data.materials):
         legacy.refresh_light_tables()
-    # The host's role registry also coordinates the native stacks' shadow lamp.
-    # This adapter refreshes a table, not an independent native-light identity.
-    from . import ruri_endfield as native
-    return native.refresh_main_light_role()
+
+
+@persistent
+def update_lights(_scene=None, _depsgraph=None):
+    """Only the opt-in legacy shader owns light tables; native nodes need no refresh."""
+    global _light_signature
+    if not any(m.get('ruri_uber_stack') == LEGACY_KEY for m in bpy.data.materials):
+        _light_signature = None
+        return
+    signature = tuple((o.name, o.data.type, o.data.energy, tuple(o.data.color),
+                       tuple(v for row in o.matrix_world for v in row),
+                       o.hide_render, o.hide_viewport, o.hide_get(),
+                       tuple(float(getattr(o.data, name, 0.0)) for name in
+                             ('angle', 'spot_size', 'spot_blend', 'diffuse_factor')))
+                      for o in bpy.context.scene.objects if o.type == 'LIGHT')
+    if signature != _light_signature:
+        _light_signature = signature
+        refresh_lights()
 
 
 @persistent
@@ -262,6 +277,8 @@ def update_rig(*args):
 
 
 def purge():
+    global _light_signature
+    _light_signature = None
     _groups.clear()
     legacy.RIG_DRIVEN.clear()
     legacy.RIG_SCANNED[0] = False
@@ -278,7 +295,7 @@ def apply_scene(scene, mode):
                  and slot.material.library is None
                  and slot.material.get('ruri_uber_stack') == wanted}
     made = replace_all(sorted(materials, key=lambda m: m.name), mode)
-    from . import ruri_endfield as native
+    from ..shader import Blender as native
     current = next(s for s in native.STACKS if s.PANEL_KEY == NATIVE_KEY)
     for obj in scene.objects:
         if obj.type != 'MESH':
@@ -348,21 +365,23 @@ def register():
     host.register_vertex_stage(vertices)
     host.register_material_compile(compile_all)
     host.register_plugin_purge(purge)
-    host.register_light_role_refresh(refresh_lights)
     host.register_capability_rewire(stack().rewire_capabilities)
     host.register_material_panel(stack())
     for handlers in (bpy.app.handlers.frame_change_post, bpy.app.handlers.depsgraph_update_post):
         if update_rig not in handlers:
             handlers.append(update_rig)
+    if update_lights not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(update_lights)
 
 
 def unregister():
+    if update_lights in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(update_lights)
     for handlers in (bpy.app.handlers.frame_change_post, bpy.app.handlers.depsgraph_update_post):
         if update_rig in handlers:
             handlers.remove(update_rig)
     host.unregister_material_panel(stack())
     host.unregister_capability_rewire(stack().rewire_capabilities)
-    host.unregister_light_role_refresh(refresh_lights)
     host.unregister_plugin_purge(purge)
     host.unregister_material_compile(compile_all)
     host.unregister_vertex_stage(vertices)

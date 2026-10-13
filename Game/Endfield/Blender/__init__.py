@@ -12,3 +12,13 @@ a face table, a set of ctrl weights -- and the host materialises it
 the camera a unit films through, a beat script. A texturing tool does not do that
 differently; it does not do it.
 """
+
+
+def register():
+    from . import shader_compatibility
+    shader_compatibility.register()
+
+
+def unregister():
+    from . import shader_compatibility
+    shader_compatibility.unregister()

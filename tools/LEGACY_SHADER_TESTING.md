@@ -3,6 +3,10 @@
 CI runs `test_legacy_resources.py`: checks the exact vendor payload, manifest
 stamp and package allowlist. It does not certify Blender rendering.
 
+The handwritten adapter and pinned vendor payload live in
+`Game/Endfield/Blender/`, outside the generator-owned `shader/Blender/` tree.
+The host projection explicitly registers the adapter with the game's lifecycle.
+
 `test_legacy_socket_contract.py` exercises the actual adapter's vector-transform
 method using Blender 5.3's changed input ordering. `test_legacy_vector_socket.py`
 runs the real node and existing-graph repair test in factory-startup Blender;

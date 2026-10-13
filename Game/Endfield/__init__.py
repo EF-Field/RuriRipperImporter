@@ -57,16 +57,26 @@ SECTIONS = (
 )
 
 _LOADED = []
+_HOST_PROJECTION = None
 
 
 def _register():
+    global _HOST_PROJECTION
     _LOADED[:] = [importlib.import_module("." + one.id, __name__)
                   for one in SECTIONS if one.available]
     for module in _LOADED:
         module.register()
+    projection = __name__ + '.' + host_port.current().name
+    if importlib.util.find_spec(projection) is not None:
+        _HOST_PROJECTION = importlib.import_module(projection)
+        _HOST_PROJECTION.register()
 
 
 def _unregister():
+    global _HOST_PROJECTION
+    if _HOST_PROJECTION is not None:
+        _HOST_PROJECTION.unregister()
+        _HOST_PROJECTION = None
     for module in reversed(_LOADED):
         module.unregister()
     _LOADED[:] = []

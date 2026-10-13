@@ -22,7 +22,7 @@ addon = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = addon
 spec.loader.exec_module(addon)
 addon.register()
-from RuriRipperImporter.Game.Endfield.shader.Blender import compatibility as c
+from RuriRipperImporter.Game.Endfield.Blender import shader_compatibility as c
 from RuriRipperImporter.Host.Blender import material_builder as host
 bpy.ops.wm.open_mainfile(filepath=str(args.fixture.resolve()))
 host.rebuild_plugin_data(True)
@@ -30,7 +30,10 @@ scene = bpy.context.scene
 rig = next(o for o in scene.objects if o.type == 'ARMATURE')
 before = (len(rig.data.bones), len(bpy.data.actions), rig.animation_data.action)
 scene.ruri_endfield_shader_mode = 'LEGACY52'
-count = c.apply_scene(scene, 'LEGACY52')
+count = len({slot.material for obj in scene.objects if obj.type == 'MESH'
+             for slot in obj.material_slots if slot.material
+             and slot.material.get('ruri_uber_stack') == c.NATIVE_KEY})
+assert bpy.ops.ruri.endfield_shader_compat() == {'FINISHED'}
 assert count > 0
 assert c.apply_scene(scene, 'LEGACY52') == 0
 legacy = [m for m in bpy.data.materials if m.get('ruri_uber_stack') == c.LEGACY_KEY
@@ -44,10 +47,23 @@ for m in legacy:
             assert not any(s.is_linked for s in n.inputs if s.identifier == 'LightIndex'), (m.name, n.name)
 assert before == (len(rig.data.bones), len(bpy.data.actions), rig.animation_data.action)
 print('LEGACY53_CONVERSION_PASS', count, flush=True)
+lamp = bpy.data.objects.new('Legacy light regression', bpy.data.lights.new('Legacy light regression', 'SUN'))
+scene.collection.objects.link(lamp)
+lamp.data.energy = 3
+c.update_lights()
+table = bpy.data.images.get(c.legacy.LIGHT_TABLE)
+pixels = tuple(table.pixels)
+lamp.data.energy = 5
+c.update_lights()
+assert tuple(table.pixels) != pixels
+bpy.data.batch_remove([lamp, lamp.data])
+c.update_lights()
+print('LEGACY53_LIGHT_EDIT_PASS', flush=True)
 bpy.ops.wm.save_as_mainfile(filepath=str(args.output / 'legacy-test.blend'), copy=True)
 bpy.ops.wm.open_mainfile(filepath=str(args.output / 'legacy-test.blend'))
 host.rebuild_plugin_data(True)
-host.refill_vertex_stages()
+host.push_camera_stages()
+host.apply_rig_stages()
 assert bpy.context.scene.ruri_endfield_shader_mode == 'LEGACY52'
 legacy = [m for m in bpy.data.materials if m.get('ruri_uber_stack') == c.LEGACY_KEY
           and not m.get(c.stack().TEMPLATE_KEY)]
@@ -66,4 +82,7 @@ bpy.context.scene.ruri_endfield_shader_mode = 'NATIVE'
 assert c.apply_scene(bpy.context.scene, 'NATIVE') == count
 print('LEGACY53_SWITCH_BACK_PASS', flush=True)
 addon.unregister()
+assert c.provide not in host.GRAPH_PROVIDERS
+assert c.update_lights not in bpy.app.handlers.depsgraph_update_post
+assert not hasattr(bpy.types.Scene, c.MODE)
 print('LEGACY53_UNREGISTER_PASS', flush=True)
