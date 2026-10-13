@@ -523,7 +523,9 @@ def _write_weight_fcurve(fcurves, keys, target, fps):
         time, _value, in_slope, out_slope = keys[index]
         frame = float(time) * fps
         point.co = (frame, values[index])
-        point.interpolation = "BEZIER"
+        constant = (math.isinf(out_slope)
+                    or (index + 1 < len(keys) and math.isinf(keys[index + 1][2])))
+        point.interpolation = "CONSTANT" if constant else "BEZIER"
         # Slopes are per SECOND at the source; on a frame-based fcurve they are per
         # frame, hence the /fps. The handle sits one third of the neighbouring
         # segment away -- shorter at the ends, where there is only one segment.
@@ -534,8 +536,10 @@ def _write_weight_fcurve(fcurves, keys, target, fps):
         right = next_gap / 3.0 if next_gap else (previous_gap / 3.0 if previous_gap else 1.0)
         point.handle_left_type = "FREE"
         point.handle_right_type = "FREE"
-        point.handle_left = (frame - left, values[index] - float(in_slope) * sign / fps * left)
-        point.handle_right = (frame + right, values[index] + float(out_slope) * sign / fps * right)
+        incoming = 0.0 if math.isinf(in_slope) else float(in_slope)
+        outgoing = 0.0 if math.isinf(out_slope) else float(out_slope)
+        point.handle_left = (frame - left, values[index] - incoming * sign / fps * left)
+        point.handle_right = (frame + right, values[index] + outgoing * sign / fps * right)
     fcurve.update()
 
 

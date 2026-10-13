@@ -592,9 +592,11 @@ def _build_actions(context, arguments):
         if asset is None or not asset.is_animated():
             skipped += 1
             continue
-        wrote = yield command.Read(
-            lambda _a=asset: host.bake_face(context, rig, table, tracks_of(_a),
-                                            frames_of(_a, fps), fps, _a.name), 0.9)
+        # Only sampling runs on a worker. The host writes bpy actions/pose bones
+        # and must be called between yields, on Blender's main thread.
+        tracks, frames = yield command.Read(
+            lambda _a=asset: (tracks_of(_a), frames_of(_a, fps)), 0.9)
+        wrote = host.bake_face(context, rig, table, tracks, frames, fps, asset.name)
         if wrote:
             built += 1
             playing = asset

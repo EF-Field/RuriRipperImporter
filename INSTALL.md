@@ -23,6 +23,28 @@
    character before applying animation with **Play On Rig**. Old RCM6 indices
    should be rebuilt for this Statement backend rather than reused as RCM7.
 
+## Endfield: Load Expressions
+
+This feature requires a matching private backend that publishes
+`endfield.morph.library` and its detail datasets. An older Statement snapshot
+that imports models and body animation is not sufficient. The separately
+delivered Load Expressions candidate needs both its frontend ZIP and runtime.
+
+1. Save your current work, install the matching add-on, select the candidate's
+   `statement-runtime` folder as Bin Dir, and restart Blender.
+2. Load the game's resource index. Select the imported character's armature or a
+   mesh skinned to it, and select the corresponding character in the roster.
+3. Click **Load Expressions**, then open **Face > Library**. Static **Emotions**
+   and **Poses** can be applied; **Rest Face** resets the bound controls.
+4. Animated entries are built with **Build Checked Actions**, not applied as a
+   static pose. Large animation/dialogue families are scoped to the character;
+   the status reports what was skipped. Shared poses/emotions remain available.
+
+The game's SkeletalMorph library drives facial bones; it is distinct from
+**Find Expressions**, which lists authored mesh Shape Keys. Loading this library
+does not enable **Retarget Face** or **Import Cloth**. Visual acceptance and
+other-character/NPC coverage remain separate from the background regression.
+
 ## Optional Endfield legacy character shading
 
 In Blender 5.3, open **N > RuriRipper > Endfield Shader Compatibility**.
