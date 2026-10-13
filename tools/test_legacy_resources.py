@@ -10,6 +10,12 @@ FOLDER = ROOT / 'Game/Endfield/Blender/legacy52'
 
 
 class LegacyResources(unittest.TestCase):
+    def test_tracked_vendor_bytes_match_packaged_input(self):
+        import package_addon
+        data = package_addon.git('show', 'HEAD:Game/Endfield/Blender/legacy52/runtime.py')
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         '13f242b03b03a2a9d3e5e68de1bd0b88137a4d23c68de4f7b16ae3a883037cc3')
+
     def test_pinned_runtime_and_template(self):
         expected = {
             'runtime.py': '13f242b03b03a2a9d3e5e68de1bd0b88137a4d23c68de4f7b16ae3a883037cc3',
