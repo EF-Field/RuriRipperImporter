@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--addon-source', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--decoder', required=True)
     parser.add_argument('--character', required=True)
+    parser.add_argument('--scope', help='Exercise a user-pasted expression scope before the operator.')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     args.output.mkdir(parents=True, exist_ok=True)
     source = args.addon_source.resolve()
@@ -54,6 +55,10 @@ def main():
     bpy.ops.object.select_all(action='DESELECT')
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig
+    if args.scope:
+        state = face.state_of(bpy.context)
+        state.armature_name = rig.name
+        state.character_token = args.scope
     if rig.animation_data:
         rig.animation_data.action = None
         for track in rig.animation_data.nla_tracks:
@@ -66,6 +71,8 @@ def main():
     state = face.state_of(bpy.context)
     host = Blender.HOST
     assert state.library_ready, state.status
+    if args.scope:
+        assert state.character_token == face.identity.morph_scope(args.scope), state.character_token
     avatars = face.avatars_for(state)
     assert avatars, state.status
     table = face.table_of(state)

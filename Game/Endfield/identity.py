@@ -21,6 +21,26 @@ _CHARACTER_MODELS = {}
 # template. Read on demand and remembered: it is an install constant.
 _NPC_INFO = {}
 _BLENDER_SUFFIX = re.compile(r"\.\d{3}$")
+_PLAYABLE_ID = re.compile(r"^chr_\d+_(.+)$")
+
+
+def morph_scope(value):
+    """A pasted playable id/rig name -> its expression-library token.
+
+    Preserve NPC template ids and custom scopes: NPC declarations use their
+    complete template identity, not the playable-character naming convention.
+    Blender's instance suffix is not part of either entity's identity.
+    """
+    key = _BLENDER_SUFFIX.sub("", str(value or "").strip().lower())
+    matched = _PLAYABLE_ID.fullmatch(key)
+    if matched is None:
+        return key
+    token = matched.group(1)
+    for suffix in ("_postmodel", "_uimodel"):
+        if token.endswith(suffix):
+            token = token[:-len(suffix)]
+            break
+    return token
 
 
 def _character_models():

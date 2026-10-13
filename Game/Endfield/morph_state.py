@@ -10,7 +10,7 @@ imports bpy: a host materializes whatever subset its UI shows.
 
 from __future__ import annotations
 
-from . import datasets, skeletal_morph
+from . import datasets, identity, skeletal_morph
 
 # Holds the parsed morph library (one export + parse per asset), so a host's
 # script reload skips this module instead of paying for it again.
@@ -49,7 +49,7 @@ def discover(character_token=""):
     (entries_for) so a host can re-scope without re-scanning."""
     global CHARACTER_TOKEN
     LIBRARY.clear()
-    CHARACTER_TOKEN = (character_token or "").strip().lower()
+    CHARACTER_TOKEN = identity.morph_scope(character_token)
     for row in datasets.morph_library():
         LIBRARY.setdefault(row["kind"], []).append({
             "cab": row["cab"],
@@ -276,11 +276,14 @@ def avatars_for(token=""):
     Falls back to every loaded avatar only when nothing carries the token AND
     exactly one is loaded; an unmatched token with several loaded returns
     nothing rather than binding some other character's face onto this rig."""
-    token = (token or CHARACTER_TOKEN or "").strip().lower()
+    token = identity.morph_scope(token or CHARACTER_TOKEN)
     if token:
         matches = [avatar for avatar in AVATARS.values() if token in avatar.name.lower()]
         if matches:
             return sorted(matches, key=lambda avatar: avatar.name)
+        # An explicit unmatched scope must not silently borrow the sole loaded
+        # avatar of a different character.
+        return []
     loaded = list(AVATARS.values())
     return loaded if len(loaded) == 1 else []
 
