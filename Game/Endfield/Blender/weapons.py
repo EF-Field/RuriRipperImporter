@@ -5,7 +5,7 @@ No game paths, slot numbers or bone names are inferred here.
 """
 
 import bpy
-from bpy.props import CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
 from mathutils import Matrix
 
 from ....Host.Blender import rig_identity
@@ -163,6 +163,10 @@ class RURI_PG_weapon_row(bpy.types.PropertyGroup):
     detail: StringProperty()
 
 
+class RURI_PG_weapon_action(bpy.types.PropertyGroup):
+    seed: StringProperty()
+
+
 class RURI_PG_weapons(bpy.types.PropertyGroup):
     actor: PointerProperty(name='角色', type=bpy.types.Object,
                            poll=lambda self, obj: obj.type == 'ARMATURE')
@@ -170,6 +174,26 @@ class RURI_PG_weapons(bpy.types.PropertyGroup):
     mode: EnumProperty(name='状态', items=[('fight', '战斗', ''), ('idle', '待机', '')], default='fight')
     rows: CollectionProperty(type=RURI_PG_weapon_row)
     index: IntProperty()
+    auto_sync: BoolProperty(name='导入角色动作时自动匹配武器', default=True)
+    candidates: CollectionProperty(type=RURI_PG_weapon_action)
+    candidate_index: IntProperty()
+    candidate_slot: IntProperty(default=-1)
+    candidate_seed: StringProperty()
+
+
+def populate_slots(state, actor, rows):
+    state.rows.clear()
+    state.actor = actor
+    state.seed = rig_identity.seed_of(actor)
+    for row in sorted(rows, key=lambda r: (r['status'] != 'ready', not bool(r['visible']), int(r['slot']))):
+        if row['mode'] != state.mode:
+            continue
+        item = state.rows.add()
+        item.slot, item.mode, item.status = int(row['slot']), row['mode'], row['status']
+        item.name = '%d · %s' % (item.slot, row['weapon'].rsplit('/', 1)[-1] or '装备武器')
+        item.detail = '%s · %s%s' % (STATUSES.get(row['status'], row['status']), row['bone'],
+                                    '' if row['visible'] else ' · 默认隐藏（技能时序未接入）')
+    state.index = 0
 
 
 class RURI_OT_read_weapons(bpy.types.Operator):
@@ -184,17 +208,8 @@ class RURI_OT_read_weapons(bpy.types.Operator):
         state.seed = ''
         try:
             rows = rows_for(actor)
-            state.actor = actor
-            state.seed = rig_identity.seed_of(actor)
-            for row in sorted(rows, key=lambda r: (r['status'] != 'ready', not bool(r['visible']), int(r['slot']))):
-                if row['mode'] != state.mode:
-                    continue
-                item = state.rows.add()
-                item.slot, item.mode, item.status = int(row['slot']), row['mode'], row['status']
-                item.name = '%d · %s' % (item.slot, row['weapon'].rsplit('/', 1)[-1] or '装备武器')
-                item.detail = '%s · %s%s' % (STATUSES.get(row['status'], row['status']), row['bone'],
-                                            '' if row['visible'] else ' · 默认隐藏（技能时序未接入）')
-            state.index = 0
+            populate_slots(state, actor, rows)
+            state.candidates.clear()
         except Exception as exc:
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
@@ -236,6 +251,7 @@ class RURI_PT_weapons(bpy.types.Panel):
     def draw(self, context):
         state = getattr(context.scene, STATE)
         layout = self.layout
+        layout.prop(state, 'auto_sync')
         layout.prop(state, 'actor')
         layout.operator('ruri.endfield_select_weapon_actor', text='选择角色（继续导入角色动作）')
         layout.prop(state, 'mode')
@@ -247,7 +263,18 @@ class RURI_PT_weapons(bpy.types.Panel):
             row = layout.row()
             row.enabled = selected.status == 'ready' and selected.mode == state.mode
             row.operator(RURI_OT_add_weapon.bl_idname, icon='ADD')
-        layout.label(text='固定武器挂接；动画仍需单独导入')
+        from . import weapon_sync
+        if state.actor and state.actor.get(weapon_sync.NOTE):
+            box = layout.box()
+            box.label(text='Note', icon='INFO')
+            for line in state.actor[weapon_sync.NOTE].splitlines():
+                box.label(text=line)
+        layout.operator('ruri.endfield_weapon_actions', text='读取可选武器动作')
+        if state.candidates:
+            layout.template_list('UI_UL_list', 'weapon_actions', state, 'candidates',
+                                 state, 'candidate_index', rows=3)
+            layout.operator('ruri.endfield_apply_weapon_action', text='加载此武器动作（可不选）', icon='ACTION')
+        layout.label(text='仅唯一完整动作名匹配自动加载；其余留待选择')
         layout.label(text='隐藏槽位手动预览；技能切换与特效未接入')
         if state.actor and any(o.get(OWNER) == state.actor and int(o.get(SPACE_VERSION, 1)) < 2
                                for o in context.scene.objects):
@@ -289,17 +316,53 @@ class RURI_OT_repair_weapon_basis(bpy.types.Operator):
         return {'FINISHED'}
 
 
-CLASSES = (RURI_PG_weapon_row, RURI_PG_weapons, RURI_OT_read_weapons, RURI_OT_add_weapon,
-           RURI_OT_select_weapon_actor, RURI_OT_repair_weapon_basis, RURI_PT_weapons)
+class RURI_OT_weapon_actions(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_weapon_actions'
+    bl_label = '读取可选武器动作'
+
+    def execute(self, context):
+        from . import weapon_sync
+        try:
+            weapon_sync.manual_refresh(context)
+        except Exception as exc:
+            self.report({'WARNING'}, str(exc).splitlines()[0])
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class RURI_OT_apply_weapon_action(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_apply_weapon_action'
+    bl_label = '加载此武器动作'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from . import weapon_sync
+        try:
+            weapon_sync.manual_apply(context)
+        except Exception as exc:
+            actor = getattr(context.scene, STATE).actor
+            if actor:
+                actor[weapon_sync.NOTE] = str(exc).splitlines()[0][:200]
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+CLASSES = (RURI_PG_weapon_row, RURI_PG_weapon_action, RURI_PG_weapons, RURI_OT_read_weapons, RURI_OT_add_weapon,
+           RURI_OT_select_weapon_actor, RURI_OT_repair_weapon_basis, RURI_OT_weapon_actions,
+           RURI_OT_apply_weapon_action, RURI_PT_weapons)
 
 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_weapons))
+    from . import weapon_sync
+    loading.register_performance_listener(weapon_sync.on_performance)
 
 
 def unregister():
+    from . import weapon_sync
+    loading.unregister_performance_listener(weapon_sync.on_performance)
     delattr(bpy.types.Scene, STATE)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

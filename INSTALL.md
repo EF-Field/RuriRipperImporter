@@ -62,13 +62,28 @@ Requires the matching private Statement backend publishing
 restart Blender. Existing installed files are not patched automatically.
 
 1. Open the game index and import the character normally.
-2. Open **N > RuriRipper > Endfield 角色武器**, choose the character armature
-   (or select it in the viewport), choose **战斗** or **待机**, then click
-   **读取角色武器**.
-3. Choose a ready slot and click **添加武器到角色**. The first choice prioritizes
-   ready, normally visible slots. Repeated clicks reuse the existing attachment.
-4. Import a weapon animation with **Play On Rig**, targeting the weapon's own
-   armature. Character Actions/NLA and weapon bone animation stay separate.
+2. Import and activate a character animation normally. By default the weapon
+   section's **导入角色动作时自动匹配武器** option attaches matching fixed weapons
+   and loads their matching animation. Character and weapon keep separate rigs
+   and Actions, with playback aligned in seconds at the character sample rate.
+3. Open **N > RuriRipper > Endfield 角色武器** for a small **Note** if no unique
+   match was found. The character import still succeeds. You may ignore the note,
+   or choose a weapon slot, click **读取可选武器动作**, select a row and click
+   **加载此武器动作（可不选）**. No Import(Append) or manual rig selection is needed
+   for this dedicated button. An existing weapon Action is retained on a miss.
+4. Manual attachment is still available: choose **战斗** or **待机**, click
+   **读取角色武器**, select a ready slot and **添加武器到角色**. Automatic mounting
+   uses this chosen mode, normally visible fixed slots plus already attached slots;
+   it does not infer skill visibility. Repeated imports reuse attachments and the
+   managed weapon Action for the same source/rate/rig.
+
+The matching backend must also publish `endfield.weapon.animations`. Matching is
+conservative: exact full action suffix within the weapon's own animation library,
+not fuzzy similarity or a proven game controller transition. Zero or multiple
+candidates need manual choice. NLA blending is left for manual handling. Batch
+imports synchronize only the first activated character clip; inactive Actions
+do not start a weapon performance. Switching Actions later in the editor is not
+an import and does not invoke this automatic pairing.
 
 After attachment, the character becomes the active selection so the ordinary
 animation import targets it even though the scene now has two rigs. Use
@@ -88,7 +103,7 @@ without the plugin. Retain the normal external textures required by the scene.
 
 Equipment-dependent and cross-weapon mounts are labelled and disabled. Hidden
 slots can be manually previewed but are not scheduled by skill state. Automatic
-weapon-action matching, skill visibility switching and effects are not included.
+skill visibility switching and effects are not included.
 To replace a slot or change its idle/fight mount, first remove its socket and
 weapon hierarchy. A modified existing constraint is reported rather than
 silently replaced. Background regression is not visual/game-runtime acceptance.

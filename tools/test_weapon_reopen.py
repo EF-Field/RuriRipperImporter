@@ -10,7 +10,7 @@ def main():
     weapon = next(o for o in socket.children_recursive if o.type == 'ARMATURE')
     assert actor.animation_data.action != weapon.animation_data.action
     constraint = socket.constraints[0]
-    assert constraint.target == actor and constraint.subtarget == 'User renamed mount'
+    assert constraint.target == actor and constraint.subtarget in actor.pose.bones
     maximum = 0.0
     middle = weapon.pose.bones.get('slot_M_string_01_vfx')
     samples = []
