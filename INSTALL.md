@@ -70,6 +70,16 @@ restart Blender. Existing installed files are not patched automatically.
 4. Import a weapon animation with **Play On Rig**, targeting the weapon's own
    armature. Character Actions/NLA and weapon bone animation stay separate.
 
+After attachment, the character becomes the active selection so the ordinary
+animation import targets it even though the scene now has two rigs. Use
+**选择角色（继续导入角色动作）** to select it again, or explicitly select the
+weapon armature to import weapon animation.
+
+For scenes made with the first weapon candidate, use **修复旧挂接方向** once.
+It removes the duplicated standalone-import facing transform without changing
+weapon Actions. New attachments apply this conversion automatically. Only
+attachments carrying this feature's ownership/version stamps are affected.
+
 Fixed prefab slots are resolved from the game's character configuration, with
 authored mount names and scale, not guessed from object names. Rename-safe bone
 identity is used. A socket follows the character bone; no constraints are added

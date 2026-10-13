@@ -11,11 +11,13 @@ from mathutils import Matrix
 from ....Host.Blender import rig_identity
 from ....Kernel.app import browser, loading
 from ....Kernel.bridge import cabmap_state
+from ....Kernel import statement
 from .. import datasets
 
 STATE = 'ruri_endfield_weapons'
 OWNER = 'ruri_weapon_owner'
 SLOT = 'ruri_weapon_slot'
+SPACE_VERSION = 'ruri_weapon_space_version'
 STATUSES = {
     'ready': '就绪', 'equipment_required': '需要装备选择',
     'cross_weapon_mount': '需要跨武器挂接', 'missing_mount': '挂点未解析',
@@ -30,6 +32,30 @@ def rows_for(actor):
     if cabmap_state.BRIDGE is None:
         raise ValueError('请先在资源浏览器打开游戏目录与索引')
     return datasets._rows(datasets.WEAPONS, seed=seed)
+
+
+def select_actor(context, actor):
+    for obj in context.selected_objects:
+        obj.select_set(False)
+    actor.hide_set(False)
+    actor.select_set(True)
+    context.view_layer.objects.active = actor
+
+
+def attachment_basis():
+    # A standalone import has a host-facing root turn. The actor's socket already
+    # carries that turn. Retain authored transforms, remove only the declared frame.
+    return Matrix(statement.basis('blender')['root'].tolist()).inverted()
+
+
+def repair_socket(socket):
+    if int(socket.get(SPACE_VERSION, 1)) >= 2:
+        return False
+    turn = attachment_basis()
+    for child in socket.children:
+        child.matrix_basis = turn @ child.matrix_basis
+    socket[SPACE_VERSION] = 2
+    return True
 
 
 def attach(context, actor, row, options=None):
@@ -62,6 +88,9 @@ def attach(context, actor, row, options=None):
                 or constraints[0].subtarget != bone or constraints[0].mute
                 or constraints[0].influence != 1):
             raise ValueError('现有挂接已被修改；请先检查该槽位的约束')
+        if int(socket.get(SPACE_VERSION, 1)) < 2:
+            raise ValueError('此挂接来自旧版，请点击“修复旧挂接方向”')
+        select_actor(context, actor)
         return socket, False
     before = set(bpy.data.objects)
     data_before = {name: set(getattr(bpy.data, name)) for name in
@@ -69,6 +98,7 @@ def attach(context, actor, row, options=None):
     selected = list(context.selected_objects)
     active = context.view_layer.objects.active
     frame, subframe = context.scene.frame_current, context.scene.frame_subframe
+    succeeded = False
     try:
         # The normal import route retains shader options and separate rig identity.
         built = loading.load(context, [row['seed']], options or {})
@@ -91,14 +121,16 @@ def attach(context, actor, row, options=None):
             local = obj.matrix_world.copy()
             obj.parent = socket
             obj.matrix_parent_inverse = Matrix.Identity(4)
-            obj.matrix_basis = Matrix.Scale(float(row['scale']), 4) @ local
+            obj.matrix_basis = Matrix.Scale(float(row['scale']), 4) @ attachment_basis() @ local
         socket[OWNER] = actor  # ID reference survives renames and save/reopen.
         socket[SLOT] = slot
+        socket[SPACE_VERSION] = 2
         socket['ruri_weapon_seed'] = row['seed']
         socket['ruri_weapon_mode'] = row['mode']
         socket['ruri_weapon_config'] = row['config']
         socket['ruri_weapon_warnings'] = '\n'.join(built.warnings)
         context.view_layer.update()
+        succeeded = True
         return socket, True
     except Exception:
         # Remove only this transaction's objects, including a partially built rig.
@@ -120,6 +152,8 @@ def attach(context, actor, row, options=None):
             if obj.name in context.view_layer.objects:
                 obj.select_set(True)
         context.view_layer.objects.active = active
+        if succeeded:
+            select_actor(context, actor)
 
 
 class RURI_PG_weapon_row(bpy.types.PropertyGroup):
@@ -203,6 +237,7 @@ class RURI_PT_weapons(bpy.types.Panel):
         state = getattr(context.scene, STATE)
         layout = self.layout
         layout.prop(state, 'actor')
+        layout.operator('ruri.endfield_select_weapon_actor', text='选择角色（继续导入角色动作）')
         layout.prop(state, 'mode')
         layout.operator(RURI_OT_read_weapons.bl_idname)
         layout.template_list('UI_UL_list', 'endfield_weapons', state, 'rows', state, 'index', rows=4)
@@ -214,9 +249,48 @@ class RURI_PT_weapons(bpy.types.Panel):
             row.operator(RURI_OT_add_weapon.bl_idname, icon='ADD')
         layout.label(text='固定武器挂接；动画仍需单独导入')
         layout.label(text='隐藏槽位手动预览；技能切换与特效未接入')
+        if state.actor and any(o.get(OWNER) == state.actor and int(o.get(SPACE_VERSION, 1)) < 2
+                               for o in context.scene.objects):
+            layout.operator('ruri.endfield_repair_weapon_basis')
 
 
-CLASSES = (RURI_PG_weapon_row, RURI_PG_weapons, RURI_OT_read_weapons, RURI_OT_add_weapon, RURI_PT_weapons)
+class RURI_OT_select_weapon_actor(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_select_weapon_actor'
+    bl_label = '选择角色'
+
+    def execute(self, context):
+        actor = getattr(context.scene, STATE).actor
+        if not actor or actor.name not in context.view_layer.objects or context.mode != 'OBJECT':
+            self.report({'ERROR'}, '请在物体模式指定当前视图层的角色骨架')
+            return {'CANCELLED'}
+        select_actor(context, actor)
+        return {'FINISHED'}
+
+
+class RURI_OT_repair_weapon_basis(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_repair_weapon_basis'
+    bl_label = '修复旧挂接方向'
+    bl_description = '仅对本功能旧版创建的挂接移除重复导入朝向；保留武器动作'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        state = getattr(context.scene, STATE)
+        if not state.actor or context.mode != 'OBJECT':
+            return {'CANCELLED'}
+        try:
+            sockets = [o for o in context.scene.objects if o.get(OWNER) == state.actor]
+            count = sum(repair_socket(o) for o in sockets)
+            select_actor(context, state.actor)
+            context.view_layer.update()
+        except Exception as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        self.report({'INFO'}, '已修复 %d 个旧挂接，武器动作保持不变' % count)
+        return {'FINISHED'}
+
+
+CLASSES = (RURI_PG_weapon_row, RURI_PG_weapons, RURI_OT_read_weapons, RURI_OT_add_weapon,
+           RURI_OT_select_weapon_actor, RURI_OT_repair_weapon_basis, RURI_PT_weapons)
 
 
 def register():
