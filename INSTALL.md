@@ -45,6 +45,16 @@ The game's SkeletalMorph library drives facial bones; it is distinct from
 does not enable **Retarget Face** or **Import Cloth**. Visual acceptance and
 other-character/NPC coverage remain separate from the background regression.
 
+The `bound/total` count beside an entry counts unique controls with effective
+targets on this rig, versus all controls the entry names. It does not count
+textures, keyframes or completeness of game-runtime expression playback.
+`0/total` entries are dimmed; the shared library includes controls whose authored
+mapping is empty on this character. Static entries are clicked/applied, while
+animated entries must be checked and baked. A full ratio does not guarantee a
+large visible change: weights may be tiny, or several entries may share the same
+static pose. Applying an emotion currently previews its static pose only; it does
+not schedule the game's automatic blinking/micro-expression state machine.
+
 ## Optional Endfield legacy character shading
 
 In Blender 5.3, open **N > RuriRipper > Endfield Shader Compatibility**.

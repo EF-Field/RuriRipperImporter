@@ -31,8 +31,24 @@ _SUBTYPES = {
     app_state.FACTOR: "FACTOR",
 }
 
-#: Last items list handed to Blender per (schema, field) -- see the module note.
+#: The current list and every catalog version previously handed to Blender.
+#: Keeping only the LAST list releases strings still borrowed by outgoing UI
+#: buttons. Repeated drawing must reuse the same list/strings, not replace them.
 _enum_items = {}
+_enum_history = {}
+
+
+def _cache_enum_items(key, produced):
+    signature = tuple(tuple(entry) for entry in produced) or (("", "", ""),)
+    history = _enum_history.setdefault(key, {})
+    # Retain an existing live list when this cache is introduced in a session.
+    previous = _enum_items.get(key)
+    if previous is not None:
+        history.setdefault(tuple(tuple(entry) for entry in previous), previous)
+    if signature not in history:
+        history[signature] = list(signature)
+    _enum_items[key] = history[signature]
+    return _enum_items[key]
 
 
 def _enum_callback(schema, field, handler):
@@ -40,8 +56,7 @@ def _enum_callback(schema, field, handler):
 
     def items(self, context):
         produced = handler(self, context) or ()
-        _enum_items[key] = [tuple(entry) for entry in produced] or [("", "", "")]
-        return _enum_items[key]
+        return _cache_enum_items(key, produced)
 
     return items
 
