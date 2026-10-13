@@ -55,6 +55,34 @@ large visible change: weights may be tiny, or several entries may share the same
 static pose. Applying an emotion currently previews its static pose only; it does
 not schedule the game's automatic blinking/micro-expression state machine.
 
+## Endfield: add character weapons
+
+Requires the matching private Statement backend publishing
+`endfield.character.weapons`; install the frontend and backend together and
+restart Blender. Existing installed files are not patched automatically.
+
+1. Open the game index and import the character normally.
+2. Open **N > RuriRipper > Endfield 角色武器**, choose the character armature
+   (or select it in the viewport), choose **战斗** or **待机**, then click
+   **读取角色武器**.
+3. Choose a ready slot and click **添加武器到角色**. The first choice prioritizes
+   ready, normally visible slots. Repeated clicks reuse the existing attachment.
+4. Import a weapon animation with **Play On Rig**, targeting the weapon's own
+   armature. Character Actions/NLA and weapon bone animation stay separate.
+
+Fixed prefab slots are resolved from the game's character configuration, with
+authored mount names and scale, not guessed from object names. Rename-safe bone
+identity is used. A socket follows the character bone; no constraints are added
+to the weapon's internal bones. The attachment survives saving and reopening
+without the plugin. Retain the normal external textures required by the scene.
+
+Equipment-dependent and cross-weapon mounts are labelled and disabled. Hidden
+slots can be manually previewed but are not scheduled by skill state. Automatic
+weapon-action matching, skill visibility switching and effects are not included.
+To replace a slot or change its idle/fight mount, first remove its socket and
+weapon hierarchy. A modified existing constraint is reported rather than
+silently replaced. Background regression is not visual/game-runtime acceptance.
+
 ## Optional Endfield legacy character shading
 
 In Blender 5.3, open **N > RuriRipper > Endfield Shader Compatibility**.
