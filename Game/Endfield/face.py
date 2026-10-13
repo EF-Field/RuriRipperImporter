@@ -152,9 +152,15 @@ def face_table(state):
     each one IS -- its name -- is the only identity shared across them."""
     base = {}
     deltas = {}
+    shapes, shaders = [], []
     for avatar in avatars_for(state):
-        if not avatar.mappings:
-            continue
+        for ctrl, mapping in avatar.blend_shapes.items():
+            shapes.append(dict(mapping, ctrl=ctrl))
+        for ctrl, mapping in avatar.shader_params.items():
+            # A declaration identifies the shader independently from the material
+            # instance name. Keep the mask/type/component; the host must not guess.
+            shader = mapping["declaration"].rsplit("__", 1)[0]
+            shaders.append(dict(mapping, ctrl=ctrl, shader=shader))
         for entry in avatar.base_pose.values():
             if entry.bone_name:
                 base.setdefault(entry.bone_name,
@@ -165,7 +171,12 @@ def face_table(state):
                 if delta.bone_name:
                     merged.append((delta.bone_name, delta.position, delta.rotation,
                                    delta.scale))
-    return {"base": base, "deltas": deltas, "shape_rule": SHAPE_KEY_RULE}
+    return {"base": base, "deltas": deltas, "shape_rule": SHAPE_KEY_RULE,
+            "shape_index_mappings": shapes,
+            "shape_mesh_pattern": r"(?i)(?:^|_)(?:eye)?brow(?:_|$)",
+            "shader_mappings": shaders,
+            "shader_identity_property": "ruri_uber_shader",
+            "renderer_mask_property": "ruri_renderer_mask"}
 
 
 #: The table last handed over, so the host's binding cache can tell one build from
@@ -498,6 +509,9 @@ def _load_library(context, arguments):
                      "{2}{3}".format(len(missing), state.armature_name,
                                      ", ".join(missing[:4]),
                                      " ..." if len(missing) > 4 else ""))
+    if bound.get("unresolved_targets"):
+        lines.append("{0} non-bone target issue(s): {1}".format(
+            len(bound["unresolved_targets"]), "  ".join(bound["unresolved_targets"][:2])))
     state.status = ("{0} asset(s) parsed · {1} ctrl driver(s) · {2} bound on {3}".format(
         parsed, len(vocabulary), hits, state.armature_name or "this rig")
         + (" (" + via + ")" if via else "") + ". " + "  ".join(lines))
@@ -581,9 +595,9 @@ def frames_of(asset, fps):
 
 
 def _build_actions(context, arguments):
-    """Bake the checked morph animations. Keyframes carry the game's own times and
-    weights on the shape-key half -- no resampling -- while the bone half is sampled
-    per frame, because a bone is the sum of every ctrl pushing it."""
+    """Bake checked morph animations. Independent shape keys retain source times;
+    shared/indexed keys, shader components and bone sums use per-frame samples.
+    Sampling resolves multi-ctrl contributions into one curve per host target."""
     state = state_of(context)
     host = host_port.current()
     rig = _rig(context, state)
@@ -736,6 +750,13 @@ def draw(layout, context):
     row.operator(APPLY.id, icon="PLAY")
     row.operator(CLEAR.id, icon="LOOP_BACK")
     controls.prop(state, "apply_on_click")
+    if 0 <= state.items_active_index < len(state.items):
+        asset = morph_state.ASSETS.get(state.items[state.items_active_index].asset)
+        if asset is not None and asset.kind == "emotion" and asset.settings:
+            controls.label(text="Emotion settings imported; Apply previews the static pose.", icon="INFO")
+            controls.label(text="Blink {0:g}s ± {1:g}s · speed {2:g} · lips {3}".format(
+                asset.settings.get("_blinkInterval", 0), asset.settings.get("_blinkIntervalRandomRange", 0),
+                asset.settings.get("_blinkSpeed", 1), asset.settings.get("_phonemePoseLipsType", 0)))
     _draw_phonemes(body, state)
 
 

@@ -48,7 +48,7 @@ _EULER_SIGN_CANDIDATES = tuple((x, y, z) for x in (1.0, -1.0)
 
 #: Session-lived, keyed by armature name so a stale binding from a deleted or
 #: replaced rig can never be applied to the wrong object.
-_BINDING = {"rig": "", "table": None, "binding": None}
+_BINDING = {"rig": "", "object": None, "table": None, "binding": None}
 
 
 def rig_meshes(rig):
@@ -77,14 +77,18 @@ class MorphTarget:
     RNA data path to animate, and the sign the ctrl's weight enters with (a
     "min" shape key answers to negative weight)."""
 
-    __slots__ = ("owner", "data_path", "sign", "setter", "label")
+    __slots__ = ("owner", "data_path", "sign", "setter", "label", "index", "default", "round_value", "clamp")
 
-    def __init__(self, owner, data_path, sign, setter, label):
+    def __init__(self, owner, data_path, sign, setter, label, index=-1, default=0.0, round_value=False, clamp=None):
         self.owner = owner
         self.data_path = data_path
         self.sign = sign
         self.setter = setter
         self.label = label
+        self.index = index
+        self.default = default
+        self.round_value = round_value
+        self.clamp = clamp
 
     def apply(self, weight):
         signed = weight * self.sign
@@ -126,25 +130,144 @@ def _resolve_shape_keys(rig, meshes, rule):
     return bindings
 
 
-class ShapeKeyBinding:
-    """The ctrls this rig exposes as baked shape keys."""
+def _resolve_index_shapes(meshes, table, targets, unresolved):
+    """Use authored indexes only on the game's declared mesh role, not every mesh.
 
+    Unity's index excludes the Basis key Blender inserts. An ambiguous mesh role
+    is reported, never resolved by choosing the first object in the scene.
+    """
+    mappings = table.get("shape_index_mappings") or []
+    if not mappings:
+        return
+    pattern = table.get("shape_mesh_pattern")
+    candidates = [o for o in meshes if pattern and re.search(pattern, o.name)
+                  and o.data.shape_keys is not None]
+    if len(candidates) != 1:
+        unresolved.append("BlendShape mesh role matched {0} meshes; expected one.".format(len(candidates)))
+        return
+    obj = candidates[0]
+    owner = obj.data.shape_keys
+    for mapping in mappings:
+        index = int(mapping["index"]) + 1
+        if index < 1 or index >= len(owner.key_blocks):
+            unresolved.append("{0}: BlendShape index {1} is absent.".format(mapping["ctrl"], index - 1))
+            continue
+        block = owner.key_blocks[index]
+        target = MorphTarget(owner, block.path_from_id("value"), 1.0, _key_block_setter(block),
+                             obj.name + " · " + block.name, clamp=(block.slider_min, block.slider_max))
+        listed = targets.setdefault(mapping["ctrl"], [])
+        if not any(t.owner is owner and t.data_path == target.data_path for t in listed):
+            listed.append(target)
+
+
+def _resolve_shader_targets(meshes, table, unresolved):
+    """Resolve exact shader identity, renderer mask and unlinked uniform sockets.
+
+    No graph or material is rebuilt. Non-All masks need explicit renderer-role
+    metadata; missing metadata is not treated as a wildcard. The neutral table
+    carries component/type/defaults, independent of shader implementation code.
+    """
+    targets = {}
+    for mapping in table.get("shader_mappings") or []:
+        ctrl = mapping["ctrl"]
+        param = mapping["param"]
+        mask = int(mapping["renderer_mask"]) & 0xffffffff
+        scalar = mapping["type"] == "SkMorphShaderParamFloat"
+        if mapping["type"] not in {"SkMorphShaderParamFloat", "SkMorphShaderParamVector4"} or mapping["blend_mode"] not in {0, 1}:
+            unresolved.append(ctrl + ": unsupported shader type/blend mode (metadata retained).")
+            continue
+        component = int(mapping["vector_index"])
+        if not 0 <= component < (1 if scalar else 4):
+            unresolved.append(ctrl + ": invalid shader component.")
+            continue
+        seen = set()
+        for obj in meshes:
+            declared_mask = obj.get(table.get("renderer_mask_property", ""))
+            if mask != 0xffffffff and (declared_mask is None or not (mask & int(declared_mask))):
+                continue
+            for slot in obj.material_slots:
+                material = slot.material
+                if material is None or material.node_tree is None:
+                    continue
+                shader = str(material.get(table.get("shader_identity_property", ""), "")).rsplit("/", 1)[-1]
+                if shader != mapping["shader"]:
+                    continue
+                owner = material.node_tree
+                for node in owner.nodes:
+                    for socket in node.inputs:
+                        if socket.name != param or socket.is_linked or not hasattr(socket, "default_value"):
+                            continue
+                        value = socket.default_value
+                        if scalar and not isinstance(value, (int, float)):
+                            continue
+                        if not scalar and (not hasattr(value, "__len__") or component >= len(value)):
+                            continue
+                        path = socket.path_from_id("default_value")
+                        identity = (owner.as_pointer(), path, -1 if scalar else component)
+                        if identity in seen:
+                            continue
+                        seen.add(identity)
+                        def setter(v, socket=socket, scalar=scalar, component=component):
+                            if scalar:
+                                socket.default_value = v
+                            else:
+                                socket.default_value[component] = v
+                        targets.setdefault(ctrl, []).append(MorphTarget(
+                            owner, path, 1.0, setter, material.name + " · " + param,
+                            index=-1 if scalar else component, default=float(mapping["defaults"][component]),
+                            round_value=mapping["blend_mode"] == 1))
+        if not targets.get(ctrl):
+            unresolved.append(ctrl + ": no exact shader/mask/socket target (metadata retained).")
+    return targets
+
+
+class ScalarBinding:
+    """A target may receive several ctrl contributions; write it once per apply.
+
+    Static preview uses base + summed ctrl contributions, clamped for shape keys.
+    This is a preview policy, not a claim about the game's emotion scheduler.
+    """
     def __init__(self, targets):
-        self.targets = targets  # ctrl -> [MorphTarget]
+        self.targets = targets
+        self.groups = {}
+        for ctrl, listed in targets.items():
+            for target in listed:
+                key = (target.owner.as_pointer(), target.data_path, target.index)
+                group = self.groups.setdefault(key, [])
+                if group and (group[0][1].default != target.default or group[0][1].round_value != target.round_value):
+                    raise ValueError("Morph target has conflicting defaults/blend modes: " + target.label)
+                group.append((ctrl, target))
 
     @property
     def ctrls(self):
         return set(self.targets)
 
     def label_for(self, ctrl):
-        targets = self.targets.get(ctrl)
-        return targets[0].label if targets else ""
+        listed = self.targets.get(ctrl)
+        return listed[0].label if listed else ""
+
+    @staticmethod
+    def value_at(group, weights):
+        first = group[0][1]
+        value = first.default + sum(max(-float(weights.get(ctrl, 0.0)), 0.0) if t.sign < 0
+                                    else float(weights.get(ctrl, 0.0)) * t.sign for ctrl, t in group)
+        if first.round_value:
+            value = float(round(value))
+        if first.clamp is not None:
+            value = min(max(value, first.clamp[0]), first.clamp[1])
+        return value
 
     def apply(self, weights):
-        for ctrl, targets in self.targets.items():
-            weight = weights.get(ctrl, 0.0)
-            for target in targets:
-                target.apply(weight)
+        for group in self.groups.values():
+            group[0][1].setter(self.value_at(group, weights))
+
+
+class ShapeKeyBinding(ScalarBinding):
+    """The ctrls this rig exposes as baked shape keys."""
+
+
+class ShaderBinding(ScalarBinding):
+    """Uniform socket targets on node-tree IDs, including vector components."""
 
 
 class BoneBinding:
@@ -355,9 +478,10 @@ class BoneBinding:
 class RigBinding:
     """Everything one rig can do with ctrl drivers, across every kind of target."""
 
-    def __init__(self, armature_name, providers):
+    def __init__(self, armature_name, providers, unresolved=()):
         self.armature_name = armature_name
         self.providers = [provider for provider in providers if provider is not None]
+        self.unresolved = list(unresolved)
 
     @property
     def ctrls(self):
@@ -383,6 +507,9 @@ class RigBinding:
     def shape_binding(self):
         return next((p for p in self.providers if isinstance(p, ShapeKeyBinding)), None)
 
+    def shader_binding(self):
+        return next((p for p in self.providers if isinstance(p, ShaderBinding)), None)
+
     def __contains__(self, ctrl):
         return any(ctrl in provider.ctrls for provider in self.providers)
 
@@ -401,18 +528,22 @@ def _binding_for(rig, table):
     "bound" from silently meaning "bound to something else"."""
     if rig is None:
         return RigBinding("", [])
-    if (_BINDING["binding"] is None or _BINDING["rig"] != rig.name
+    if (_BINDING["binding"] is None or _BINDING["rig"] != rig.name or _BINDING.get("object") is not rig
             or _BINDING["table"] is not table):
-        providers = [ShapeKeyBinding(_resolve_shape_keys(
-            rig, rig_meshes(rig), (table or {}).get("shape_rule")))]
+        table = table or {}
+        meshes = rig_meshes(rig)
+        unresolved = []
+        shape_targets = _resolve_shape_keys(rig, meshes, table.get("shape_rule"))
+        _resolve_index_shapes(meshes, table, shape_targets, unresolved)
+        providers = [ShapeKeyBinding(shape_targets), ShaderBinding(_resolve_shader_targets(meshes, table, unresolved))]
         if (table or {}).get("deltas"):
             identity = rig_identity.of(rig)
             if identity is not None:
                 bones = BoneBinding(rig, table, identity)
                 if bones.ctrls:
                     providers.append(bones)
-        _BINDING.update(rig=rig.name, table=table,
-                        binding=RigBinding(rig.name, providers))
+        _BINDING.update(rig=rig.name, object=rig, table=table,
+                        binding=RigBinding(rig.name, providers, unresolved))
     return _BINDING["binding"]
 
 
@@ -422,17 +553,21 @@ def bindings(context, rig, table):
     binding = _binding_for(rig, table)
     bones = binding.bone_binding()
     shapes = binding.shape_binding()
+    shaders = binding.shader_binding()
     via = []
     if bones is not None:
         via.append((len(bones.ctrls), "via bones"))
     if shapes is not None and shapes.ctrls:
         via.append((len(shapes.ctrls), "via shape keys"))
+    if shaders is not None and shaders.ctrls:
+        via.append((len(shaders.ctrls), "via shader sockets"))
     return {
         "ctrls": {ctrl: binding.label_for(ctrl) for ctrl in binding.ctrls},
         "via": via,
         "missing_bones": sorted(bones.unmatched_source_names) if bones is not None else [],
         "rest_error": bones.rest_error if bones is not None else None,
         "reason": "" if bones is not None else _no_bone_binding_reason(rig, table),
+        "unresolved_targets": binding.unresolved,
     }
 
 
@@ -462,8 +597,9 @@ def drive(context, rig, table, weights):
 
 def bake(context, rig, table, tracks, frames, fps, name, into=None):
     """Bake one animation onto whatever this rig binds it to: shape-key value
-    curves where the ctrl is a baked blend shape, pose-bone transforms where it
-    moves bones. Returns True when at least one curve was written.
+    curves where the ctrl is a baked blend shape, node-tree uniform curves where
+    it is a shader parameter, and pose-bone transforms where it moves bones.
+    Returns True when at least one curve was written.
 
     ``tracks`` is ``{ctrl: [(time, value, in_slope, out_slope)]}`` -- the game's own
     keys, in seconds, with per-second slopes. ``frames`` is that same animation
@@ -475,37 +611,78 @@ def bake(context, rig, table, tracks, frames, fps, name, into=None):
     ``into`` is an existing (action, slot) to write the BONE half into: a clip whose
     body animation is already keyed there, whose facial channels this replaces."""
     binding = _binding_for(rig, table)
-    wrote = _bake_shape_keys(binding.shape_binding(), tracks, fps, name)
+    wrote = _bake_shape_keys(binding.shape_binding(), tracks, fps, name, frames)
+    wrote |= _bake_sampled_scalars(binding.shader_binding(), tracks, frames, name, "NODETREE")
     wrote |= _bake_bones(binding.bone_binding(), tracks, frames, fps, name, into)
     return wrote
 
 
-def _bake_shape_keys(shape_binding, tracks, fps, name):
+def _bake_shape_keys(shape_binding, tracks, fps, name, frames=()):
     """Shape-key channels keep the game's own key times -- a ctrl maps 1:1 onto one
     key's value, so there is nothing to resample."""
     if shape_binding is None:
         return False
     by_owner = {}
-    for ctrl, keys in tracks.items():
-        if not keys:
+    for group in shape_binding.groups.values():
+        animated = [(ctrl, target) for ctrl, target in group if tracks.get(ctrl)]
+        if not animated:
             continue
-        for target in shape_binding.targets.get(ctrl, ()):
-            by_owner.setdefault(target.owner, []).append((keys, target))
-    if not by_owner:
-        return False
+        if len(group) > 1 or any(target.clamp is not None for _ctrl, target in group):
+            if not len(frames):
+                raise ValueError("Shared/indexed BlendShape targets require per-frame samples.")
+            by_owner.setdefault(group[0][1].owner, {"raw": [], "sampled": []})["sampled"].append(group)
+        else:
+            ctrl, target = animated[0]
+            by_owner.setdefault(target.owner, {"raw": [], "sampled": []})["raw"].append((tracks[ctrl], target))
 
-    for owner, pairs in by_owner.items():
+    for owner, stated in by_owner.items():
         action = bpy.data.actions.new(name)
         if hasattr(action, "use_fake_user"):
             action.use_fake_user = True
         fcurves, slot = animation_builder.prepare_channels(action, action.name, "KEY")
-        for keys, target in pairs:
+        for keys, target in stated["raw"]:
             _write_weight_fcurve(fcurves, keys, target, fps)
+        for group in stated["sampled"]:
+            _write_sampled_scalar_curve(fcurves, shape_binding, group, frames)
         # A shape-key action is one HALF of a face animation (the bone half lands
         # next door), so it must not retime the scene on its own -- the caller does
         # that once, for the whole animation.
         animation_builder.adopt_action(owner, action, slot, frame_range=False)
-    return True
+    return bool(by_owner)
+
+
+def _bake_sampled_scalars(binding, tracks, frames, name, id_type, groups=None):
+    """Shared/clamped/rounded targets require one sampled curve per RNA component.
+
+    Multiple ctrl curves must never create duplicate FCurves on one key/socket.
+    Sampling also applies defaults and round mode consistently with static Apply.
+    """
+    if binding is None or not len(frames):
+        return False
+    groups = list(binding.groups.values()) if groups is None else groups
+    by_owner = {}
+    for group in groups:
+        if any(tracks.get(ctrl) for ctrl, _target in group):
+            by_owner.setdefault(group[0][1].owner, []).append(group)
+    for owner, listed in by_owner.items():
+        action = bpy.data.actions.new(name)
+        action.use_fake_user = True
+        fcurves, slot = animation_builder.prepare_channels(action, action.name, id_type)
+        for group in listed:
+            _write_sampled_scalar_curve(fcurves, binding, group, frames)
+        animation_builder.adopt_action(owner, action, slot, frame_range=False)
+    return bool(by_owner)
+
+
+def _write_sampled_scalar_curve(fcurves, binding, group, frames):
+    target = group[0][1]
+    kwargs = {"index": target.index} if target.index >= 0 else {}
+    curve = fcurves.new(target.data_path, **kwargs)
+    curve.keyframe_points.add(len(frames))
+    for index, point in enumerate(curve.keyframe_points):
+        point.co = (index, binding.value_at(group, frames[index]))
+        point.interpolation = "CONSTANT" if target.round_value else "LINEAR"
+    curve.update()
 
 
 def _write_weight_fcurve(fcurves, keys, target, fps):

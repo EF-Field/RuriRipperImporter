@@ -83,7 +83,7 @@ class MorphAsset:
     it was read from, the identity its morph library entry states."""
 
     __slots__ = ("guid", "name", "kind", "cab", "duration", "flags", "channels",
-                 "references", "phoneme_sets")
+                 "references", "phoneme_sets", "settings", "setting_types")
 
     def __init__(self, guid, name, kind, cab):
         self.guid = guid
@@ -95,6 +95,8 @@ class MorphAsset:
         self.channels = {}       # channel key -> [MorphDriver]
         self.references = {}     # field name -> guid or [guid] (blink anim, micro-expression poses)
         self.phoneme_sets = {}   # lipsync only: set index -> [guid | None] per phoneme slot
+        self.settings = {}       # typed blink/speye/lips/retention/_tag settings
+        self.setting_types = {}
 
     def drivers(self):
         for channel_key in sorted(self.channels):
@@ -142,7 +144,9 @@ class MorphBoneDelta:
 class MorphAvatar:
     """One character's ctrl -> bone-delta table."""
 
-    __slots__ = ("guid", "name", "tag_id", "bone_names", "base_pose", "mappings", "shader_params")
+    __slots__ = ("guid", "name", "tag_id", "bone_names", "base_pose", "mappings", "shader_params",
+                 "avatar", "avatar_file_id", "avatar_path_id", "data_type", "disable_blink", "use_special_params",
+                 "control_metadata", "blend_shapes", "shader_definitions")
 
     def __init__(self, guid, name, tag_id=0):
         self.guid = guid
@@ -154,6 +158,15 @@ class MorphAvatar:
         self.base_pose = {}       # boneID -> MorphBoneDelta
         self.mappings = {}        # ctrl name -> [MorphBoneDelta]
         self.shader_params = {}   # ctrl name -> {"param": str, "default": float}
+        self.avatar = ""
+        self.avatar_file_id = 0
+        self.avatar_path_id = 0
+        self.data_type = 0
+        self.disable_blink = False
+        self.use_special_params = False
+        self.control_metadata = {}
+        self.blend_shapes = {}
+        self.shader_definitions = []
 
     def ctrl_names(self):
         return sorted(self.mappings)

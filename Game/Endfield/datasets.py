@@ -18,6 +18,9 @@ under its own handle and already cached by (id, args).
 
 from __future__ import annotations
 
+import json
+import math
+
 from ...Kernel.app import staging
 from ...Kernel.bridge import cabmap_state
 
@@ -48,6 +51,9 @@ MORPH_AVATARS = "endfield.morph.avatars"
 MORPH_CTRLS = "endfield.morph.ctrls"
 MORPH_BONES = "endfield.morph.bones"
 MORPH_SHADER_PARAMS = "endfield.morph.shaderparams"
+MORPH_SETTINGS = "endfield.morph.settings"
+MORPH_BLEND_SHAPES = "endfield.morph.blendshapes"
+MORPH_SHADER_DEFS = "endfield.morph.shaderdefs"
 FACE_RETARGET = "endfield.face.retarget"
 UI_STAGES = "endfield.ui.stages"
 UI_STAGE = "endfield.ui.stage"
@@ -677,15 +683,26 @@ def morph_lipsync(cabs):
 def morph_avatars(cabs):
     """The ctrl-to-bone tables these CABs carry, with the character tag the game
     joins each to. Read off the game's own typed assets by the hook."""
-    return [{"name": row["name"], "tag_id": _int(row["tagId"])}
-            for row in _rows(MORPH_AVATARS, cab=list(cabs))]
+    built = []
+    for row in _rows(MORPH_AVATARS, cab=list(cabs)):
+        if _int(row.get("contract", 0)) != 2:
+            raise ValueError("Load Expressions field contract 2 requires the matching Hook Bin; replace both packages together.")
+        built.append({"name": row["name"], "tag_id": _int(row["tagId"]), "contract": 2,
+                      "avatar": row["avatar"], "avatar_file_id": _int(row["avatarFileId"]),
+                      "avatar_path_id": int(row["avatarPathId"]), "data_type": _int(row["dataType"]),
+                      "disable_blink": bool(_int(row["disableBlink"])),
+                      "use_special_params": bool(_int(row["useSpecialParams"])),
+                      "bone_names": json.loads(row["boneNames"])})
+    return built
 
 
 def morph_ctrls(cabs):
     """Every ctrl a table declares, including the ones that move no bone at all
     -- a ctrl the game states but nothing moves is not the same as one it never
     states, and a rig binding pass has to be able to tell them apart."""
-    return [{"avatar": row["avatar"], "ctrl": row["ctrl"], "bones": _int(row["bones"])}
+    return [{"avatar": row["avatar"], "ctrl": row["ctrl"], "bones": _int(row["bones"]),
+             "id": _int(row["id"]), "name_hash": _int(row["nameHash"]), "tag_hash": _int(row["tagHash"]),
+             "part_type": _int(row["partType"]), "type": row["type"], "rid": int(row["rid"])}
             for row in _rows(MORPH_CTRLS, cab=list(cabs))]
 
 
@@ -702,9 +719,49 @@ def morph_bones(cabs):
 
 def morph_shader_params(cabs):
     """The ctrls that drive a material parameter rather than geometry."""
-    return [{"avatar": row["avatar"], "ctrl": row["ctrl"], "param": row["param"],
-             "default": row["default"]}
+    return [dict(_shader_fields(row), avatar=row["avatar"], ctrl=row["ctrl"],
+                 default=row["default"], vector_index=_int(row["vectorIndex"]),
+                 declaration=row["declaration"], rid=int(row["rid"]))
             for row in _rows(MORPH_SHADER_PARAMS, cab=list(cabs))]
+
+
+def _shader_fields(row):
+    return {"type": row["type"], "param": row["param"], "renderer_mask": _int(row["rendererMask"]),
+            "blend_mode": _int(row["blendMode"]),
+            "defaults": tuple(row["default" + axis] for axis in "XYZW")}
+
+
+def morph_shader_definitions(cabs):
+    return [dict(_shader_fields(row), avatar=row["avatar"], name=row["name"],
+                 index=_int(row["index"]), rid=int(row["rid"]))
+            for row in _rows(MORPH_SHADER_DEFS, cab=list(cabs))]
+
+
+def morph_blend_shapes(cabs):
+    return [{"avatar": row["avatar"], "ctrl": row["ctrl"], "name_hash": _int(row["nameHash"]),
+             "index": _int(row["index"])} for row in _rows(MORPH_BLEND_SHAPES, cab=list(cabs))]
+
+
+def morph_settings(cabs):
+    """Typed scalar settings, not float reinterpretations or scheduling guesses."""
+    built = []
+    integer_types = {"SByte", "Byte", "Short", "UShort", "Int", "UInt", "Long", "ULong"}
+    for row in _rows(MORPH_SETTINGS, cab=list(cabs)):
+        kind, text = row["type"], row["value"]
+        if kind in integer_types:
+            value = int(text)
+        elif kind in {"Single", "Double"}:
+            value = float(text)
+            if not math.isfinite(value):
+                raise ValueError("Non-finite morph setting: " + row["field"])
+        elif kind == "Bool" and text in {"true", "false"}:
+            value = text == "true"
+        elif kind in {"String", "Char"}:
+            value = text
+        else:
+            raise ValueError("Unsupported morph setting type/value: " + kind)
+        built.append({"asset": row["asset"], "field": row["field"], "type": kind, "value": value})
+    return built
 
 
 # ── ui display stages ───────────────────────────────────────────────────────

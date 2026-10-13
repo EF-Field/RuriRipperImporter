@@ -85,6 +85,7 @@ def main():
               'assets': len(morph_state.ASSETS), 'avatars': [a.name for a in avatars],
               'bound': len(bound['ctrls']), 'via': bound['via'], 'rest_error': bound['rest_error'],
               'missing_bones': bound['missing_bones'], 'static_checks': []}
+    assert not bound['unresolved_targets'], bound['unresolved_targets']
     assert bpy.ops.ruri.character_clear() == {'FINISHED'}
     bpy.context.view_layer.update()
     def matrices():

@@ -114,7 +114,9 @@ def load(cabs):
     field shape is the hook's answer off the game's own typed assets; what is
     rebuilt here is the object a host samples through. Returns how many were
     added."""
-    return load_assets(cabs) + load_avatars(cabs)
+    # Validate the paired field contract before requesting its new projections,
+    # so an old Hook Bin reports the version mismatch rather than a missing ID.
+    return load_avatars(cabs) + load_assets(cabs)
 
 
 def load_assets(cabs):
@@ -139,6 +141,10 @@ def load_assets(cabs):
     for row in datasets.morph_lipsync(cabs):
         phonemes.setdefault(row["asset"], {}).setdefault(row["set"], []).append(
             (row["slot"], row["target"]))
+    settings, setting_types = {}, {}
+    for row in datasets.morph_settings(cabs):
+        settings.setdefault(row["asset"], {})[row["field"]] = row["value"]
+        setting_types.setdefault(row["asset"], {})[row["field"]] = row["type"]
 
     for row in datasets.morph_assets(cabs):
         name = row["name"]
@@ -148,6 +154,8 @@ def load_assets(cabs):
         asset.duration = row["duration"]
         asset.flags = flags.get(name, {})
         asset.references = references.get(name, {})
+        asset.settings = settings.get(name, {})
+        asset.setting_types = setting_types.get(name, {})
         asset.phoneme_sets = {set_id: [target for _slot, target in sorted(slots)]
                               for set_id, slots in phonemes.get(name, {}).items()}
         for driver in curves.get(name, ()):
@@ -179,10 +187,15 @@ def load_avatars(cabs):
         name = row["name"]
         if name not in AVATARS and name not in fresh:
             fresh[name] = skeletal_morph.MorphAvatar(name, name, int(row["tag_id"]))
+            avatar = fresh[name]
+            for field in ("avatar", "avatar_file_id", "avatar_path_id", "data_type", "disable_blink", "use_special_params"):
+                setattr(avatar, field, row[field])
+            avatar.bone_names = list(row["bone_names"])
     for row in datasets.morph_ctrls(cabs):
         avatar = fresh.get(row["avatar"])
         if avatar is not None:
             avatar.mappings.setdefault(row["ctrl"], [])
+            avatar.control_metadata[row["ctrl"]] = {key: value for key, value in row.items() if key not in {"avatar", "ctrl"}}
     for row in datasets.morph_bones(cabs):
         avatar = fresh.get(row["avatar"])
         if avatar is None:
@@ -198,7 +211,15 @@ def load_avatars(cabs):
     for row in datasets.morph_shader_params(cabs):
         avatar = fresh.get(row["avatar"])
         if avatar is not None:
-            avatar.shader_params[row["ctrl"]] = {"param": row["param"], "default": row["default"]}
+            avatar.shader_params[row["ctrl"]] = {key: value for key, value in row.items() if key not in {"avatar", "ctrl"}}
+    for row in datasets.morph_shader_definitions(cabs):
+        avatar = fresh.get(row["avatar"])
+        if avatar is not None:
+            avatar.shader_definitions.append({key: value for key, value in row.items() if key != "avatar"})
+    for row in datasets.morph_blend_shapes(cabs):
+        avatar = fresh.get(row["avatar"])
+        if avatar is not None:
+            avatar.blend_shapes[row["ctrl"]] = {"index": row["index"], "name_hash": row["name_hash"]}
     AVATARS.update(fresh)
     return len(fresh)
 

@@ -89,3 +89,24 @@ matching its lighting; this option does not delete user lamps or choose an HDRI.
 Actions checks packaging/build boundaries. It does not replace a full Blender
 GUI/material/all-animation regression. The validated animation case is raw
 Attack01, 556 bones, 301 frames at 60 fps with no missing reference paths.
+## Load Expressions field contract 2
+
+Install the matching frontend **and** Hook Bin together. The expanded expression
+reader imports avatar/control identity metadata, explicit BlendShape hash/index
+maps, complete float/Vector4 shader declarations and typed emotion/animation
+settings. An older Hook Bin is rejected with a contract-version message.
+
+The static preview additionally drives explicitly mapped eyebrow Shape Keys and
+existing shader uniform sockets. Non-All renderer masks require explicit renderer
+role metadata; linked sockets and ambiguous mesh targets are reported rather than
+rewired or guessed. Shared Shape Keys and shader components bake one sampled
+FCurve per target; multiple contributing controls do not create duplicate curves.
+
+Blink/special-eye/micro-expression references and timing settings are retained,
+but automatic emotion scheduling and complete game-render parity are separate
+features. Apply remains a static preview. Source/import/number checks do not
+replace manual visual acceptance.
+
+Save your own work before replacing an installed package and restarting Blender.
+Do not unregister/reload the addon inside an unsaved scene to replace its CLR or
+RNA classes. Candidate packages do not modify the existing installed runtime.
