@@ -35,11 +35,12 @@ GRAPH_PROVIDERS = extensions.point(
     "blender.graph_providers",
     "Node graphs a generated shader stack builds for the materials it claims.")
 
-#: ``apply_vertex_stage(objects=None, camera=None) -> int``. Every stage only
+#: ``apply_vertex_stage(objects, camera=None) -> int``. Every stage only
 #: touches materials and modifiers it owns, so running all of them is
-#: order-independent. The ONE caller is the derived-state scheduler. This point
-#: carries the TOPOLOGY half only -- the geometry tree and the modifier holding
-#: it -- so it is reached only when something entered the scene.
+#: order-independent. The ONE caller is the derived-state scheduler, and the
+#: ONE input it passes is the objects an import just built from the game's
+#: materials. This point carries the TOPOLOGY half only -- the geometry tree and
+#: the modifier holding it -- and nothing ever rebuilds it afterwards.
 VERTEX_STAGES = extensions.point(
     "blender.vertex_stages",
     "The vertex tree and its modifier a shading stack builds when assets arrive.")
@@ -483,8 +484,8 @@ def viewpoint():
 # ---------------------------------------------------------------------------
 # What the derived-state scheduler runs
 # ---------------------------------------------------------------------------
-def apply_vertex_stages(objects=None, camera=None):
-    return sum(stage(objects=objects, camera=camera) for stage in VERTEX_STAGES)
+def apply_vertex_stages(objects):
+    return sum(stage(objects=objects) for stage in VERTEX_STAGES)
 
 
 def push_camera_stages(objects=None, camera=None):
@@ -495,13 +496,6 @@ def apply_rig_stages(objects=None):
     return sum(stage(objects=objects) for stage in RIG_STAGES)
 
 
-def refill_vertex_stages():
-    """The vertex trees of the modifiers already on objects, rebuilt from the materials'
-    records: a tree is the plugin's own data and no file carries one, while the modifier
-    holding it is the object's content and does. No modifier is added or removed."""
-    return sum(stage(objects=None, camera=None, refill=True) for stage in VERTEX_STAGES)
-
-
 def rebuild_plugin_data(purge):
     """The load pass. ``purge``: a file just opened or the stacks just loaded, so every piece
     of the plugin's own data in memory is dropped first -- this session's, or an older build's
@@ -509,13 +503,15 @@ def rebuild_plugin_data(purge):
     Without it only the materials this session has not compiled yet (appended from another
     file) are. The compiled materials' environment answers are the current scene's, and are
     stamped so. One stack failing leaves the others compiling; the failures are raised
-    together afterwards. Returns ``(dropped, compiled)``."""
+    together afterwards. A twin that left its session and came back with this file (pasted,
+    appended, saved without the plugin) is handed back to its material before anything is
+    dropped or compiled (see :mod:`linked_twins`). Returns ``(dropped, compiled)``."""
     dropped = 0
+    failures = _linked_twins.return_strays()
     if purge:
         _linked_twins.release()
         dropped = _plugin_data.purge() + sum(drop() for drop in PLUGIN_PURGES)
     compiled = []
-    failures = []
     for compile_all in MATERIAL_COMPILES:
         try:
             compiled.extend(compile_all())
