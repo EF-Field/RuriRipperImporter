@@ -6,8 +6,9 @@ The user manually checked the installable candidate and reported that models and
 animations were satisfactory, then selected Blender 5.3 as the primary line.
 `main` is now the 5.3 / Statement development and release line; 5.2 remains a
 separate legacy compatibility-maintenance line. Exact user-tested asset names and
-coverage were not specified. Material/effect/physics/all-character acceptance
-remains separate from this model/animation approval.
+coverage were not specified. The user subsequently approved the checked material
+appearance and requested pushing the mainline to GitHub. Effects are explicitly
+deferred; physics, other characters and full game-render parity remain separate.
 
 Install/import manually. Automatic review launching was discontinued after its
 startup sidebar update crashed this Alpha in a windowless UI context. The

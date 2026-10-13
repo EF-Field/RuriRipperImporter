@@ -4,8 +4,9 @@
   work from main; do not treat `codex/blender-5.2` as the default development line.
 - Preserve the 5.2 compatibility branch and its legacy ABI/runtime. Backport
   necessary fixes separately; keep the two runtime directories distinct.
-- User accepted model and animation imports on 2026-10-13. This is not approval
-  of all materials, effects, physics, characters, or complete game-render parity.
+- User accepted model and animation imports and the checked material appearance
+  on 2026-10-13. Effects are explicitly deferred. This is not approval of every
+  material/character, physics, or complete game-render parity.
 - The current tested host is Blender 5.3 Alpha `73cfbda0a06d`. Other 5.3 builds
   require their own compatibility checks.
 - Deliver the installable add-on and matching backend. The user installs and
