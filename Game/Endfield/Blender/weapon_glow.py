@@ -22,6 +22,9 @@ ERROR = 'ruri_glow_error'
 BINDINGS = 'ruri_glow_binding_links'
 RECORD = 'ruri_glow_settings_record'
 _HYDRATING = set()
+# Artist reference preset, not a recovered game uniform. Scene-linear RGBA.
+NORMAL_COLOR = (.16, .055, 1.0, 1.0)
+STRING_STRENGTH = 128.0
 
 
 def record_settings(material):
@@ -48,7 +51,7 @@ def hydrate_settings(material):
     _HYDRATING.add(pointer)
     try:
         settings.role = record.get('role', '')
-        settings.color = record.get('color', (.06, .3, 1, 1))
+        settings.color = record.get('color', NORMAL_COLOR)
         settings.strength = record.get('strength', 3)
         settings.mask = record.get('mask')
         settings.mask_secondary = record.get('mask_secondary')
@@ -225,7 +228,7 @@ def apply(context):
         raise ValueError('纹路材质缺少已导入的 _EmissionMap 贴图')
     made, bindings = [], []
     try:
-        for source, role, strength in zip(resolved, ('光弦', '纹路'), (8.0, 6.0)):
+        for source, role, strength in zip(resolved, ('光弦', '纹路'), (STRING_STRENGTH, 6.0)):
             existing = [mat for mat in owned_materials(target) if mat.get(BASE) == source]
             if len(existing) > 1:
                 raise ValueError('同一来源存在多份受管材质，请先整理')
@@ -239,10 +242,12 @@ def apply(context):
             material_builder.content(material)
             settings = getattr(material, SETTINGS)
             settings.role = role
+            settings.color = NORMAL_COLOR
             settings.mask = image_of(source, '_MainTex' if role == '光弦' else '_EmissionMap')
             settings.mask_secondary = image_of(source, '_MaskTex') if role == '光弦' else None
             settings.strength = strength
-            settings.enabled = True
+            settings.enabled = role == '光弦'
+            record_settings(material)
             rebuild(material)
             for obj in meshes:
                 for index, slot in enumerate(obj.material_slots):
@@ -256,7 +261,7 @@ def apply(context):
                     slot.link = 'OBJECT'
                     slot.material = material
         state.target = target
-        state.note = '光弦与纹路静态发光已应用；原材质、骨架和动作保留'
+        state.note = '发光材质已应用；新副本默认仅光弦开启，已有调整保留'
     except Exception:
         for obj, index, link, source in reversed(bindings):
             slot = obj.material_slots[index]
@@ -273,6 +278,28 @@ def apply(context):
                 mat.use_fake_user = False
                 bpy.data.materials.remove(mat)
         raise
+
+
+def normal(context):
+    """Explicit preset for new or previous-version copies; never auto-migrate art."""
+    target = target_of(context)
+    materials = owned_materials(target)
+    if sorted(getattr(mat, SETTINGS).role for mat in materials) != ['光弦', '纹路']:
+        raise ValueError('请先应用光弦／纹路静态发光')
+    for material in materials:
+        settings = getattr(material, SETTINGS)
+        pointer = material.as_pointer()
+        _HYDRATING.add(pointer)
+        try:
+            settings.color = NORMAL_COLOR
+            settings.enabled = settings.role == '光弦'
+            if settings.role == '光弦':
+                settings.strength = STRING_STRENGTH
+        finally:
+            _HYDRATING.discard(pointer)
+        record_settings(material)
+        rebuild(material)
+    getattr(context.scene, STATE).note = '正常状态：蓝紫光弦开启，武器纹路发光关闭'
 
 
 def restore(context):
@@ -311,7 +338,7 @@ class RURI_PG_weapon_glow(bpy.types.PropertyGroup):
     role: StringProperty()
     enabled: BoolProperty(name='启用静态发光', default=False, update=changed)
     color: FloatVectorProperty(name='发光颜色', size=4, subtype='COLOR', min=0, max=1,
-                               default=(.06, .30, 1, 1), update=changed)
+                               default=NORMAL_COLOR, update=changed)
     strength: FloatProperty(name='发光强度', min=0, soft_max=20, max=1000, default=3, update=changed)
     mask: PointerProperty(name='发光遮罩', type=bpy.types.Image, update=changed)
     mask_secondary: PointerProperty(name='辅助遮罩', type=bpy.types.Image, update=changed)
@@ -362,6 +389,19 @@ class RURI_OT_weapon_glow_restore(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class RURI_OT_weapon_glow_normal(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_weapon_glow_normal'
+    bl_label = '正常状态：仅光弦发光'
+    bl_options = {'REGISTER', 'UNDO'}
+    def execute(self, context):
+        try:
+            normal(context)
+        except Exception as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class RURI_PT_weapon_glow(bpy.types.Panel):
     bl_label = 'Endfield 武器静态发光'
     bl_idname = 'RURI_PT_endfield_weapon_glow'
@@ -376,6 +416,7 @@ class RURI_PT_weapon_glow(bpy.types.Panel):
         layout.prop(state, 'string_material', text='光弦材质')
         layout.prop(state, 'pattern_material', text='纹路材质')
         layout.operator(RURI_OT_weapon_glow_apply.bl_idname)
+        layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
         if state.target and state.target.name in context.scene.objects:
             for material in owned_materials(state.target):
                 settings = getattr(material, SETTINGS)
@@ -397,7 +438,8 @@ class RURI_PT_weapon_glow(bpy.types.Panel):
 
 
 CLASSES = (RURI_PG_weapon_glow, RURI_PG_weapon_glow_panel, RURI_OT_weapon_glow_scan,
-           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_PT_weapon_glow)
+           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal,
+           RURI_PT_weapon_glow)
 
 
 def register():

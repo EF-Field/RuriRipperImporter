@@ -60,7 +60,10 @@ def main():
         assert len(materials) == 2
         material_builder.rebuild_plugin_data(purge=True)
         materials = glow.owned_materials(target)
-        assert all(any(n.get(glow.TAG) for n in mat.node_tree.nodes) for mat in materials)
+        assert all(bool(any(n.get(glow.TAG) for n in mat.node_tree.nodes)) ==
+                   (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
+        assert all(getattr(mat, glow.SETTINGS).enabled ==
+                   (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
         assert all(not mat.get(glow.ERROR) for mat in materials)
         assert bpy.ops.ruri.endfield_weapon_glow_restore() == {'FINISHED'}
         assert all(obj.material_slots[i].material.name == name for obj, i, link, name in source_slots)
@@ -78,6 +81,8 @@ def main():
         materials = glow.owned_materials(target)
         assert len(materials) == 2
         assert all(not mat.get(glow.ERROR) for mat in materials)
+        assert all(getattr(mat, glow.SETTINGS).enabled ==
+                   (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
         assert all(slot.material == mat for slot, mat in zip(outside.material_slots, outside_materials))
         assert all(obj.data.materials[i].name == name for obj, i, link, name in source_slots if link == 'DATA')
         counts = {mat.name: len(mat.node_tree.nodes) for mat in materials}
@@ -99,6 +104,15 @@ def main():
         assert all(not mat.get(glow.ERROR) for mat in materials)
         assert all(getattr(mat, glow.SETTINGS).strength == 12 for mat in materials)
         assert all(abs(getattr(mat, glow.SETTINGS).color[1] - .4) < 1e-6 for mat in materials)
+        assert bpy.ops.ruri.endfield_weapon_glow_normal() == {'FINISHED'}
+        assert all(getattr(mat, glow.SETTINGS).enabled ==
+                   (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
+        assert all(max(abs(a-b) for a, b in zip(getattr(mat, glow.SETTINGS).color, glow.NORMAL_COLOR)) < 1e-6
+                   for mat in materials)
+        material_builder.rebuild_plugin_data(purge=True)
+        materials = glow.owned_materials(target)
+        assert all(getattr(mat, glow.SETTINGS).enabled ==
+                   (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
         assert colorspaces == {image.name: image.colorspace_settings.name for image in bpy.data.images
                                if image.name in colorspaces}
         assert all([list(row) for row in bpy.data.objects[name].matrix_world] == value
@@ -116,6 +130,7 @@ def main():
                       source=str(args.blend), target=target.name, sources=list(source_graphs),
                       independent_materials=True, source_slots_preserved=True, shared_mesh_preserved=True,
                       repeated_apply=True, toggle_and_controls=True, host_recompile=True,
+                      normal_preset=True, default_pattern_disabled=True, reference_blue_violet=True,
                       colorspaces_preserved=True, transforms_and_actions_preserved=True, restore=True,
                       original_graph_counts=source_graphs, render=args.render, engine=args.engine)
     (args.output / ('reopen-report.json' if args.reopen else 'report.json')).write_text(
@@ -236,8 +251,11 @@ def render(bpy, glow, target, output, engine):
     scene.render.use_compositing = False
     materials = glow.owned_materials(target)
     for enabled, filename in ((False, 'bow-before.png'), (True, 'bow-glow.png')):
-        for mat in materials:
-            getattr(mat, glow.SETTINGS).enabled = enabled
+        if enabled:
+            glow.normal(bpy.context)
+        else:
+            for mat in materials:
+                getattr(mat, glow.SETTINGS).enabled = False
         scene.render.filepath = str(output / filename)
         bpy.ops.render.render(write_still=True)
 
