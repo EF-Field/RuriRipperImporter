@@ -15,14 +15,16 @@ differently; it does not do it.
 
 
 def register():
-    from . import shader_compatibility, weapons, weapon_effects
+    from . import shader_compatibility, weapons, weapon_effects, weapon_glow
     shader_compatibility.register()
     weapons.register()
     weapon_effects.register()
+    weapon_glow.register()
 
 
 def unregister():
-    from . import shader_compatibility, weapons, weapon_effects
+    from . import shader_compatibility, weapons, weapon_effects, weapon_glow
+    weapon_glow.unregister()
     weapon_effects.unregister()
     weapons.unregister()
     shader_compatibility.unregister()
