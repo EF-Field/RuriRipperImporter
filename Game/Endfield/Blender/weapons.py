@@ -241,44 +241,36 @@ class RURI_OT_add_weapon(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class RURI_PT_weapons(bpy.types.Panel):
-    bl_label = 'Endfield 角色武器'
-    bl_idname = 'RURI_PT_endfield_weapons'
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'RuriRipper'
-
-    def draw(self, context):
-        state = getattr(context.scene, STATE)
-        layout = self.layout
-        layout.prop(state, 'auto_sync')
-        layout.prop(state, 'actor')
-        layout.operator('ruri.endfield_select_weapon_actor', text='选择角色（继续导入角色动作）')
-        layout.prop(state, 'mode')
-        layout.operator(RURI_OT_read_weapons.bl_idname)
-        layout.template_list('UI_UL_list', 'endfield_weapons', state, 'rows', state, 'index', rows=4)
-        if 0 <= state.index < len(state.rows):
-            selected = state.rows[state.index]
-            layout.label(text=selected.detail)
-            row = layout.row()
-            row.enabled = selected.status == 'ready' and selected.mode == state.mode
-            row.operator(RURI_OT_add_weapon.bl_idname, icon='ADD')
-        from . import weapon_sync
-        if state.actor and state.actor.get(weapon_sync.NOTE):
-            box = layout.box()
-            box.label(text='Note', icon='INFO')
-            for line in state.actor[weapon_sync.NOTE].splitlines():
-                box.label(text=line)
-        layout.operator('ruri.endfield_weapon_actions', text='读取可选武器动作')
-        if state.candidates:
-            layout.template_list('UI_UL_list', 'weapon_actions', state, 'candidates',
-                                 state, 'candidate_index', rows=3)
-            layout.operator('ruri.endfield_apply_weapon_action', text='加载此武器动作（可不选）', icon='ACTION')
-        layout.label(text='仅唯一完整动作名匹配自动加载；其余留待选择')
-        layout.label(text='隐藏槽位手动预览；技能切换与特效未接入')
-        if state.actor and any(o.get(OWNER) == state.actor and int(o.get(SPACE_VERSION, 1)) < 2
-                               for o in context.scene.objects):
-            layout.operator('ruri.endfield_repair_weapon_basis')
+def draw_mount(layout, context):
+    state = getattr(context.scene, STATE)
+    layout.prop(state, 'auto_sync')
+    layout.prop(state, 'actor')
+    layout.operator('ruri.endfield_select_weapon_actor', text='选择角色（继续导入角色动作）')
+    layout.prop(state, 'mode')
+    layout.operator(RURI_OT_read_weapons.bl_idname)
+    layout.template_list('UI_UL_list', 'endfield_weapons', state, 'rows', state, 'index', rows=4)
+    if 0 <= state.index < len(state.rows):
+        selected = state.rows[state.index]
+        layout.label(text=selected.detail)
+        row = layout.row()
+        row.enabled = selected.status == 'ready' and selected.mode == state.mode
+        row.operator(RURI_OT_add_weapon.bl_idname, icon='ADD')
+    from . import weapon_sync
+    if state.actor and state.actor.get(weapon_sync.NOTE):
+        box = layout.box()
+        box.label(text='Note', icon='INFO')
+        for line in state.actor[weapon_sync.NOTE].splitlines():
+            box.label(text=line)
+    layout.operator('ruri.endfield_weapon_actions', text='读取可选武器动作')
+    if state.candidates:
+        layout.template_list('UI_UL_list', 'weapon_actions', state, 'candidates',
+                             state, 'candidate_index', rows=3)
+        layout.operator('ruri.endfield_apply_weapon_action', text='加载此武器动作（可不选）', icon='ACTION')
+    layout.label(text='仅唯一完整动作名匹配自动加载；其余留待选择')
+    layout.label(text='隐藏槽位手动预览；技能切换与特效未接入')
+    if state.actor and any(o.get(OWNER) == state.actor and int(o.get(SPACE_VERSION, 1)) < 2
+                           for o in context.scene.objects):
+        layout.operator('ruri.endfield_repair_weapon_basis')
 
 
 class RURI_OT_select_weapon_actor(bpy.types.Operator):
@@ -349,7 +341,7 @@ class RURI_OT_apply_weapon_action(bpy.types.Operator):
 
 CLASSES = (RURI_PG_weapon_row, RURI_PG_weapon_action, RURI_PG_weapons, RURI_OT_read_weapons, RURI_OT_add_weapon,
            RURI_OT_select_weapon_actor, RURI_OT_repair_weapon_basis, RURI_OT_weapon_actions,
-           RURI_OT_apply_weapon_action, RURI_PT_weapons)
+           RURI_OT_apply_weapon_action)
 
 
 def register():
@@ -358,9 +350,13 @@ def register():
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_weapons))
     from . import weapon_sync
     loading.register_performance_listener(weapon_sync.on_performance)
+    from .. import weapon
+    weapon.register_section('mount', draw_mount)
 
 
 def unregister():
+    from .. import weapon
+    weapon.drop_section('mount')
     from . import weapon_sync
     loading.unregister_performance_listener(weapon_sync.on_performance)
     delattr(bpy.types.Scene, STATE)

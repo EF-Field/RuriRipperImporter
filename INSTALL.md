@@ -66,7 +66,7 @@ restart Blender. Existing installed files are not patched automatically.
    section's **导入角色动作时自动匹配武器** option attaches matching fixed weapons
    and loads their matching animation. Character and weapon keep separate rigs
    and Actions, with playback aligned in seconds at the character sample rate.
-3. Open **N > RuriRipper > Endfield 角色武器** for a small **Note** if no unique
+3. Open **N > RuriRipper > Weapon > 武器挂载** for a small **Note** if no unique
    match was found. The character import still succeeds. You may ignore the note,
    or choose a weapon slot, click **读取可选武器动作**, select a row and click
    **加载此武器动作（可不选）**. No Import(Append) or manual rig selection is needed
@@ -171,7 +171,7 @@ RNA classes. Candidate packages do not modify the existing installed runtime.
 这批候选不是完整攻击特效播放，也不替代原模型、动作及材质验收。
 
 1. 手动安装匹配的插件与 Hook Bin，重启 Blender；原安装与场景请先自行保存。
-2. 正常导入角色及动作。在侧栏 **Endfield 武器攻击特效 · 首阶段** 选角色，
+2. 正常导入角色及动作。在 **RuriRipper > Weapon > 攻击特效 · 首阶段** 选角色，
    点击 **读取箭矢／命中特效**。昨日的武器动作配对照常保留。
 3. 用 **筛选配置／效果** 找投射物配置，例如 `attack_01`，选择飞行或命中条目。
    目录列的是角色所属投射物的真实配置引用，不表示已经解出动作触发帧。
@@ -194,7 +194,7 @@ RNA classes. Candidate packages do not modify the existing installed runtime.
 也不读取游戏代码或启动逆向工具。它是可调的 Blender 静态表现，
 不表示已还原游戏中的技能状态、材质切换或动态粒子逻辑。
 
-1. 打开侧栏 **RuriRipper → Endfield 武器静态发光**。
+1. 打开侧栏 **RuriRipper → Weapon → 静态发光**。
 2. **武器目标**选择武器挂接，例如 `Weapon slot 10`，而非角色根骨架。
 3. 点击 **识别已有武器材质**，检查 **光弦材质**与**纹路材质**。
    提弗洛斯当前验证的光弦来源为 `M_fx_typhoea_objectline_001_zjm`，
@@ -213,3 +213,11 @@ RNA classes. Candidate packages do not modify the existing installed runtime.
 发光记录随 `.blend` 保存，插件重建材质时恢复。重复应用复用副本，
 不会叠加发光分支。已导入贴图不足或绑定被外部修改时提示检查，
 本功能不补猜游戏资源或状态。原安装、源场景及动作保持保留。
+
+## 前端分类
+
+`Weapon` 与 `Character` 同级，通过原有 GameTab 注册与浏览器页签机制显示。
+页内沿用 Character 的下拉分栏：**武器挂载 / 攻击特效 · 首阶段 / 静态发光**，
+每次只显示一组。原来的三个独立侧栏面板已移除，功能和场景状态保持原样。
+`Endfield Shader Compatibility` 面板、5.2 模式切换适配器及其独立资源已从
+main 前端移除；Native 5.3 材质流程保持原样。5.2 维护分支／检出未变动。

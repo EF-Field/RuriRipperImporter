@@ -354,51 +354,47 @@ class RURI_UL_effects(bpy.types.UIList):
                  for item in getattr(data, propname)], [])
 
 
-class RURI_PT_effects(bpy.types.Panel):
-    bl_label = 'Endfield 武器攻击特效 · 首阶段'
-    bl_idname = 'RURI_PT_endfield_effects'
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'RuriRipper'
-
-    def draw(self, context):
-        layout = self.layout
-        state = getattr(context.scene, STATE)
-        layout.prop(state, 'actor', text='角色')
-        layout.operator(RURI_OT_read_effects.bl_idname)
-        layout.prop(state, 'query')
-        layout.template_list('RURI_UL_effects', 'endfield_effects', state, 'rows', state, 'index', rows=5)
-        if state.rows and state.index < len(state.rows):
-            row = json.loads(state.rows[state.index].payload)
-            layout.label(text=STATUS.get(row['status'], row['status']))
-            layout.prop(state, 'placement', text='预览位置')
-            layout.prop(state, 'preview_source_meshes')
-            if state.placement == 'ANCHOR':
-                layout.prop(state, 'anchor', text='跟随对象')
-                if state.anchor and state.anchor.type == 'ARMATURE':
-                    layout.prop_search(state, 'bone', state.anchor.data, 'bones', text='骨骼')
-            button = layout.row()
-            button.enabled = row['status'] == 'ready'
-            button.operator(RURI_OT_import_effect.bl_idname)
-        layout.label(text='粒子：源参数导入；动态播放待实现', icon='INFO')
-        layout.label(text='触发／发射／命中：未自动同步动作')
-        if state.note:
-            layout.label(text=state.note[:100])
-        layout.prop(state, 'instance', text='管理实例')
-        layout.operator(RURI_OT_remove_effect.bl_idname)
+def draw_effects(layout, context):
+    state = getattr(context.scene, STATE)
+    layout.prop(state, 'actor', text='角色')
+    layout.operator(RURI_OT_read_effects.bl_idname)
+    layout.prop(state, 'query')
+    layout.template_list('RURI_UL_effects', 'endfield_effects', state, 'rows', state, 'index', rows=5)
+    if state.rows and state.index < len(state.rows):
+        row = json.loads(state.rows[state.index].payload)
+        layout.label(text=STATUS.get(row['status'], row['status']))
+        layout.prop(state, 'placement', text='预览位置')
+        layout.prop(state, 'preview_source_meshes')
+        if state.placement == 'ANCHOR':
+            layout.prop(state, 'anchor', text='跟随对象')
+            if state.anchor and state.anchor.type == 'ARMATURE':
+                layout.prop_search(state, 'bone', state.anchor.data, 'bones', text='骨骼')
+        button = layout.row()
+        button.enabled = row['status'] == 'ready'
+        button.operator(RURI_OT_import_effect.bl_idname)
+    layout.label(text='粒子：源参数导入；动态播放待实现', icon='INFO')
+    layout.label(text='触发／发射／命中：未自动同步动作')
+    if state.note:
+        layout.label(text=state.note[:100])
+    layout.prop(state, 'instance', text='管理实例')
+    layout.operator(RURI_OT_remove_effect.bl_idname)
 
 
 CLASSES = (RURI_PG_effect_row, RURI_PG_effects, RURI_OT_read_effects,
-           RURI_OT_import_effect, RURI_OT_remove_effect, RURI_UL_effects, RURI_PT_effects)
+           RURI_OT_import_effect, RURI_OT_remove_effect, RURI_UL_effects)
 
 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_effects))
+    from .. import weapon
+    weapon.register_section('effects', draw_effects)
 
 
 def unregister():
+    from .. import weapon
+    weapon.drop_section('effects')
     delattr(bpy.types.Scene, STATE)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

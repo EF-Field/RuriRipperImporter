@@ -54,6 +54,7 @@ SECTIONS = (
     GameSection("ui_scene", host_port.SceneGraph),
     GameSection("story", host_port.Timeline),
     GameSection("face", host_port.MorphTargets),
+    GameSection("weapon", host_port.Rig),
 )
 
 _LOADED = []
@@ -122,6 +123,8 @@ GAME_MODULE = GameModule(
                 "its story animations, and the SkeletalMorph emotion/pose/lipsync "
                 "library",
                 ("character", "draw_tab")),
+        GameTab("weapon", "Weapon", "Weapon mounting, attack effect resources and static emission",
+                ("weapon", "draw_tab"), requires=host_port.Rig, requires_index=False),
     ),
     # A UI or cutscene clip carries its face in the BONE tracks, so importing one onto
     # another character needs the performance read off the geometry and restated in that

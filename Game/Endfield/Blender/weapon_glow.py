@@ -402,44 +402,36 @@ class RURI_OT_weapon_glow_normal(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class RURI_PT_weapon_glow(bpy.types.Panel):
-    bl_label = 'Endfield 武器静态发光'
-    bl_idname = 'RURI_PT_endfield_weapon_glow'
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'RuriRipper'
-    def draw(self, context):
-        layout = self.layout
-        state = getattr(context.scene, STATE)
-        layout.prop(state, 'target', text='武器目标')
-        layout.operator(RURI_OT_weapon_glow_scan.bl_idname)
-        layout.prop(state, 'string_material', text='光弦材质')
-        layout.prop(state, 'pattern_material', text='纹路材质')
-        layout.operator(RURI_OT_weapon_glow_apply.bl_idname)
-        layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
-        if state.target and state.target.name in context.scene.objects:
-            for material in owned_materials(state.target):
-                settings = getattr(material, SETTINGS)
-                box = layout.box()
-                box.label(text=settings.role + ' · 独立控制')
-                box.prop(settings, 'enabled')
-                box.prop(settings, 'color')
-                box.prop(settings, 'strength')
-                box.prop(settings, 'mask')
-                if settings.role == '光弦':
-                    box.prop(settings, 'mask_secondary')
-                if material.get(ERROR):
-                    box.label(text=material[ERROR][:90], icon='ERROR')
-        layout.operator(RURI_OT_weapon_glow_restore.bl_idname)
-        layout.label(text='仅 Blender 静态材质；不涉及游戏动态逻辑', icon='INFO')
-        layout.label(text='自发光≠光晕；合成器辉光保持原设置')
-        if state.note:
-            layout.label(text=state.note[:90])
+def draw_glow(layout, context):
+    state = getattr(context.scene, STATE)
+    layout.prop(state, 'target', text='武器目标')
+    layout.operator(RURI_OT_weapon_glow_scan.bl_idname)
+    layout.prop(state, 'string_material', text='光弦材质')
+    layout.prop(state, 'pattern_material', text='纹路材质')
+    layout.operator(RURI_OT_weapon_glow_apply.bl_idname)
+    layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
+    if state.target and state.target.name in context.scene.objects:
+        for material in owned_materials(state.target):
+            settings = getattr(material, SETTINGS)
+            box = layout.box()
+            box.label(text=settings.role + ' · 独立控制')
+            box.prop(settings, 'enabled')
+            box.prop(settings, 'color')
+            box.prop(settings, 'strength')
+            box.prop(settings, 'mask')
+            if settings.role == '光弦':
+                box.prop(settings, 'mask_secondary')
+            if material.get(ERROR):
+                box.label(text=material[ERROR][:90], icon='ERROR')
+    layout.operator(RURI_OT_weapon_glow_restore.bl_idname)
+    layout.label(text='仅 Blender 静态材质；不涉及游戏动态逻辑', icon='INFO')
+    layout.label(text='自发光≠光晕；合成器辉光保持原设置')
+    if state.note:
+        layout.label(text=state.note[:90])
 
 
 CLASSES = (RURI_PG_weapon_glow, RURI_PG_weapon_glow_panel, RURI_OT_weapon_glow_scan,
-           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal,
-           RURI_PT_weapon_glow)
+           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal)
 
 
 def register():
@@ -448,9 +440,13 @@ def register():
     setattr(bpy.types.Material, SETTINGS, PointerProperty(type=RURI_PG_weapon_glow))
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_weapon_glow_panel))
     material_builder.MATERIAL_FINALIZERS.add(finalize)
+    from .. import weapon
+    weapon.register_section('glow', draw_glow)
 
 
 def unregister():
+    from .. import weapon
+    weapon.drop_section('glow')
     material_builder.MATERIAL_FINALIZERS.remove(finalize)
     delattr(bpy.types.Scene, STATE)
     delattr(bpy.types.Material, SETTINGS)
