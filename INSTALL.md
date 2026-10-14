@@ -163,3 +163,27 @@ replace manual visual acceptance.
 Save your own work before replacing an installed package and restarting Blender.
 Do not unregister/reload the addon inside an unsaved scene to replace its CLR or
 RNA classes. Candidate packages do not modify the existing installed runtime.
+
+## 武器攻击特效：首阶段候选
+
+此功能需配套的 **WeaponEffects-Phase1** 后端候选；已验收的旧后端没有
+`endfield.character.projectile_effects` 和 `endfield.effect.components` 数据集。
+这批候选不是完整攻击特效播放，也不替代原模型、动作及材质验收。
+
+1. 手动安装匹配的插件与 Hook Bin，重启 Blender；原安装与场景请先自行保存。
+2. 正常导入角色及动作。在侧栏 **Endfield 武器攻击特效 · 首阶段** 选角色，
+   点击 **读取箭矢／命中特效**。昨日的武器动作配对照常保留。
+3. 用 **筛选配置／效果** 找投射物配置，例如 `attack_01`，选择飞行或命中条目。
+   目录列的是角色所属投射物的真实配置引用，不表示已经解出动作触发帧。
+4. 默认在 3D 游标处手动查看资源；也可主动指定跟随对象／骨骼。
+   **静态粒子源网格预览** 仅显示 mesh 模式粒子的原始几何与材质模板。
+   Billboard、发射数量、寿命、噪声、拖尾、粒子运动和碰撞均未模拟。
+5. 点击 **导入特效资源（首阶段）**。粒子参数、曲线、渐变和真实资源引用存入
+   本实例的 `Effect source` JSON 文本；文本不执行代码。结果提示区分普通网格、
+   静态模板与粒子参数，零普通网格不代表粒子已显示。
+6. 相同来源与挂接的重复请求复用实例；切换模板预览或挂接选项前先移除旧实例。
+   **移除此特效实例** 只删除本功能管理的层级；新增外部子对象会阻止删除，
+   共享网格／材质与外部引用的来源文本保留。
+
+当前真实资源测试对象为提弗洛斯。粒子动态播放、攻击轨迹重建、箭矢飞行与
+命中位置、动作／技能时序、其他角色以及手动视觉一致性验收仍待后续实施。
