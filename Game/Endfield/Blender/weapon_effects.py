@@ -313,7 +313,7 @@ class RURI_OT_import_effect(bpy.types.Operator):
             if state.placement == 'ANCHOR' and state.anchor is None:
                 raise ValueError('请选择手动挂接目标')
             result = import_effect(context, state.actor, json.loads(state.rows[state.index].payload),
-                                   browser.as_options(context.scene),
+                                   browser.as_options(browser.state_of(context)),
                                    anchor=state.anchor if state.placement == 'ANCHOR' else None,
                                    bone=state.bone if state.placement == 'ANCHOR' else '',
                                    preview_source_meshes=state.preview_source_meshes)

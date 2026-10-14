@@ -161,6 +161,39 @@ def fixture_cases(effects, report, output):
     with patch.object(effects.weapons.statement, 'basis', return_value={'root': Basis()}), \
             patch.object(effects.datasets, '_rows', side_effect=rows), \
             patch.object(effects.loading, 'load', side_effect=load):
+        def operator_options():
+            # Exercise the actual UI operator and actual browser option conversion.
+            # Only the resource import is replaced, keeping this repro deterministic.
+            state = getattr(context.scene, effects.STATE)
+            state.actor = actor
+            state.rows.clear()
+            state.rows.add().payload = json.dumps(row)
+            browser_state = effects.browser.state_of(context)
+            old_detail = browser_state.detail_level
+            captured = []
+            fake_root = bpy.data.objects.new('Operator fixture result', None)
+            context.collection.objects.link(fake_root)
+            fake_root['ruri_effect_note'] = 'Operator fixture imported'
+            def receive(ctx, target, source, options, **kwargs):
+                captured.append(options)
+                assert target == actor and source['identity'] == row['identity']
+                return SimpleNamespace(root=fake_root)
+            try:
+                browser_state.detail_level = 2
+                with patch.object(effects, 'import_effect', side_effect=receive):
+                    result = bpy.ops.ruri.endfield_import_effect()
+                assert result == {'FINISHED'}, (result, state.note)
+                assert len(captured) == 1 and captured[0]['detail_level'] == 2, captured
+                assert state.instance == fake_root
+                return dict(operator='ruri.endfield_import_effect', browser_options_unmocked=True,
+                            detail_level=captured[0]['detail_level'])
+            finally:
+                state.instance = None
+                browser_state.detail_level = old_detail
+                state.rows.clear()
+                bpy.data.objects.remove(fake_root, do_unlink=True)
+        run_case(report, 'ui_operator_reads_browser_state_not_scene', operator_options)
+
         def invalid_inputs():
             before = snapshot(effects)
             errors = [require_error(lambda: effects.import_effect(

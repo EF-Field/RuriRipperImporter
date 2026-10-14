@@ -33,7 +33,7 @@ def main():
     addon.register()
     import bpy
     from RuriRipperImporter.Kernel.bridge import pythonnet_bridge as pn, cabmap_state
-    from RuriRipperImporter.Kernel.app import loading
+    from RuriRipperImporter.Kernel.app import loading, browser
     from RuriRipperImporter.Game.Endfield.Blender import weapons, weapon_sync, weapon_effects as effects
     bridge = pn.RipperBridge('Endfield_1.5.3', str(args.game_root))
     bridge.load_cab_map(str(args.cabmap))
@@ -78,8 +78,18 @@ def main():
         assert not [item for item in components if item['kind'] == 'unsupported_component'], components
         import_options = dict(options, game_shaders=args.native_shaders)
         # Both source-only and exact mesh-mode template routes are covered.
-        first = effects.import_effect(bpy.context, actor, row, import_options)
-        assert first.created
+        # Exercise the same entry point as the panel, including unmocked options.
+        effect_state.index = next(index for index, item in enumerate(effect_state.rows)
+                                  if json.loads(item.payload)['identity'] == row['identity'])
+        effect_state.placement = 'CURSOR'
+        effect_state.preview_source_meshes = False
+        browser.state_of(bpy.context).game_shaders = args.native_shaders
+        before = set(bpy.data.objects)
+        assert bpy.ops.ruri.endfield_import_effect() == {'FINISHED'}, effect_state.note
+        first_root = effect_state.instance
+        assert first_root is not None and first_root in set(bpy.data.objects) - before
+        first = effects.Imported(first_root, True, int(first_root['ruri_effect_meshes']),
+                                 int(first_root['ruri_effect_particles']))
         assert effects.import_effect(bpy.context, actor, row, import_options).root == first.root
         assert effects.import_effect(bpy.context, actor, row, import_options).created is False
         effects.remove_effect(bpy.context, first.root)
@@ -108,6 +118,7 @@ def main():
     report['character_action_preserved'] = report['weapon_action_preserved'] = True
     report['selection_frame_range_rate_preserved'] = True
     report['sources_readable'] = True
+    report['ui_import_operator_unmocked_options'] = True
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(args.output / 'effects.blend'))
     (args.output / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
