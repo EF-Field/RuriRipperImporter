@@ -35,9 +35,10 @@ def main():
     import bpy
     bpy.context.preferences.filepaths.recent_files = 0
     from RuriRipperImporter import Game
-    from RuriRipperImporter.Kernel.app import browser, layout
-    from RuriRipperImporter.Host.Blender import render
-    from RuriRipperImporter.Game.Endfield import weapon, datasets
+    from RuriRipperImporter.Kernel.app import browser, layout, loading, command
+    from RuriRipperImporter.Kernel import host as host_port, statement
+    from RuriRipperImporter.Host.Blender import render, rig_identity
+    from RuriRipperImporter.Game.Endfield import weapon, datasets, roster
     from RuriRipperImporter.Game.Endfield.Blender import weapons, weapon_effects, weapon_glow
     from RuriRipperImporter.Host.Blender import material_builder
     from RuriRipperImporter.Kernel.bridge import bootstrap
@@ -75,6 +76,62 @@ def main():
     actor = bpy.data.objects.new('UI fixture actor', bpy.data.armatures.new('UI fixture rig'))
     bpy.context.scene.collection.objects.link(actor)
     mount = getattr(bpy.context.scene, weapons.STATE)
+    # Drive the actual stepped Character import path, replacing only the reader
+    # and materialiser with synthetic results. No data is read from a game.
+    host = host_port.current()
+    class Stated:
+        materials = {}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    def import_from(panel, game, result):
+        with patch.object(browser, 'as_options', return_value=dict(source_game=game)), \
+             patch.object(loading, 'read', return_value=Stated()), \
+             patch.object(type(host), 'materialise', return_value=result), \
+             patch.object(browser, '_sync_texture_roles'), \
+             patch.object(browser, '_rebuild_window'), \
+             patch.object(browser, '_redraw'), patch.object(browser, '_announce'):
+            steps = browser._load_steps(bpy.context, browser.state_of(bpy.context),
+                                        ['fixture:opaque'], (), False, panel)
+            reply = None
+            while True:
+                try:
+                    step = steps.send(reply)
+                except StopIteration:
+                    break
+                reply = step.fn() if isinstance(step, command.Read) else None
+    mount.auto_sync = False
+    rig_identity.stamp_seed(actor, 'fixture:first')
+    import_from(roster.STATE, 'Endfield', statement.Built(rig=actor, objects=[actor], imported=1))
+    assert mount.actor == actor and mount.seed == 'fixture:first'
+    later = bpy.data.objects.new('Last imported fixture', bpy.data.armatures.new('Later rig'))
+    bpy.context.scene.collection.objects.link(later)
+    rig_identity.stamp_seed(later, 'fixture:last')
+    mount.rows.add().name = 'stale slot'
+    mount.candidates.add().name = 'stale action'
+    mount.candidate_slot, mount.candidate_seed = 7, 'fixture:old-weapon'
+    import_from(roster.STATE, 'Endfield', statement.Built(rig=later, objects=[later], imported=1))
+    assert mount.actor == later and mount.seed == 'fixture:last'
+    assert not mount.rows and not mount.candidates
+    assert mount.candidate_slot == -1 and not mount.candidate_seed
+    for panel, game, result in (
+            ('', 'Endfield', statement.Built(rig=actor, imported=1)),
+            (browser.STATE, 'Endfield', statement.Built(rig=actor, imported=1)),
+            (roster.STATE, 'WutheringWaves', statement.Built(rig=actor, imported=1)),
+            (roster.STATE, 'Endfield', statement.Built(rig=actor, imported=0)),
+            (roster.STATE, 'Endfield', statement.Built(imported=1))):
+        import_from(panel, game, result)
+        assert mount.actor == later
+    # The icon still selects the target for subsequent character actions.
+    mount.actor = later
+    assert bpy.ops.ruri.endfield_select_weapon_actor() == {'FINISHED'}
+    assert bpy.context.view_layer.objects.active == later and later.select_get()
+    assert loading._import_listeners.count(weapons.on_import) == 1
+    assert 'catalog_search' not in mount.bl_rna.properties
+    report.update(last_successful_character=True, stale_actor_rows_cleared=True,
+                  auto_sync_opt_out_selection=True, weapon_import_preserves_actor=True,
+                  other_games_unchanged=True, selection_icon_operator=True)
     mount.actor = actor
     item = mount.rows.add()
     item.name, item.status, item.mode = 'fixture weapon', 'ready', mount.mode
@@ -99,14 +156,19 @@ def main():
     class RecordingLayout:
         def __init__(self, calls=None):
             self.calls = [] if calls is None else calls
+            self.children = []
+            self.local = []
             self.enabled = True
             self.active = True
         def container(self, *args, **kwargs):
-            return RecordingLayout(self.calls)
+            child = RecordingLayout(self.calls)
+            self.children.append(child)
+            return child
         column = row = box = split = grid_flow = container
         def prop(self, data, key, **kwargs):
             assert key in data.bl_rna.properties, (data, key)
             self.calls.append(('prop', key))
+            self.local.append(('prop', key))
         def prop_search(self, data, key, search, collection, **kwargs):
             assert key in data.bl_rna.properties and collection in search.bl_rna.properties
             self.calls.append(('search', key))
@@ -114,6 +176,7 @@ def main():
             namespace, verb = name.split('.')
             getattr(getattr(bpy.ops, namespace), verb).get_rna_type()
             self.calls.append(('operator', name, self.enabled))
+            self.local.append(('operator', name, kwargs))
             return type('Arguments', (), {})()
         def template_list(self, name, identifier, data, collection, active, index, **kwargs):
             assert collection in data.bl_rna.properties and index in active.bl_rna.properties
@@ -129,6 +192,23 @@ def main():
             pass
         def progress(self, **kwargs):
             pass
+
+    target = RecordingLayout()
+    weapons.draw_mount(target, bpy.context)
+    actor_row = next(child for child in target.children if ('prop', 'actor') in child.local)
+    assert len(actor_row.children) == 1
+    assert actor_row.children[0].local == [('operator', 'ruri.endfield_select_weapon_actor',
+                                          dict(text='', icon='RESTRICT_SELECT_OFF'))]
+    assert 'RESTRICT_SELECT_OFF' in bpy.types.UILayout.bl_rna.functions['operator'].parameters['icon'].enum_items
+    assert not any(call in target.calls for call in (
+        ('prop', 'catalog_search'), ('label', '装备武器 · 由你选择'),
+        ('label', '隐藏槽位手动预览；技能切换与特效未接入')))
+    for required in ('ruri.endfield_scan_weapon_catalog', 'ruri.endfield_equip_weapon',
+                     'ruri.endfield_add_weapon', 'ruri.endfield_weapon_actions'):
+        assert any(call[:2] == ('operator', required) for call in target.calls)
+    assert ('label', '资源目录不推断专武归属或游戏装备限制') in target.calls
+    assert ('label', '仅唯一完整动作名匹配自动加载；其余留待选择') in target.calls
+    report.update(compact_actor_row=True, struck_elements_removed=True, retained_controls=True)
 
     state = browser.state_of(bpy.context)
     config = state.games.add()
@@ -171,11 +251,15 @@ def main():
                   compatibility_removed=True, native_provider_retained=True, weapon_without_index=True)
     report.update(character_index_gate_retained=True, game_switch_drops_weapon_tab=True)
     addon.unregister()
+    assert not loading._import_listeners
     assert not hasattr(bpy.types.Scene, weapon.STATE)
     assert not weapon.SECTIONS.keys()
     register_without_reader()
     from RuriRipperImporter.Game.Endfield import weapon as reloaded_weapon
+    from RuriRipperImporter.Game.Endfield.Blender import weapons as reloaded_weapons
+    from RuriRipperImporter.Kernel.app import loading as reloaded_loading
     assert reloaded_weapon.SECTIONS.keys() == ('mount', 'effects', 'glow')
+    assert reloaded_loading._import_listeners.count(reloaded_weapons.on_import) == 1
     addon.unregister()
     report['register_unregister_register'] = True
     (args.output / 'ui-report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')

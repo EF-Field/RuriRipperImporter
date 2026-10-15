@@ -41,6 +41,27 @@ class WeaponUIContract(unittest.TestCase):
         self.assertTrue(package_addon.included('docs/WEAPON-EQUIPMENT.md'))
         self.assertTrue((ROOT / 'Game/Endfield/shader/Blender/ruri_character_uber_endfield.blend').is_file())
 
+    def test_compact_selection_icon_and_removed_mount_elements(self):
+        module = ast.parse((ROOT / 'Game/Endfield/Blender/weapons.py').read_text(encoding='utf-8'))
+        draw = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == 'draw_mount')
+        calls = [n for n in ast.walk(draw) if isinstance(n, ast.Call)]
+        select = next(n for n in calls if n.args and isinstance(n.args[0], ast.Constant)
+                      and n.args[0].value == 'ruri.endfield_select_weapon_actor')
+        self.assertEqual({k.arg: ast.literal_eval(k.value) for k in select.keywords},
+                         dict(text='', icon='RESTRICT_SELECT_OFF'))
+        text = ast.unparse(draw)
+        for removed in ('catalog_search', '装备武器 · 由你选择', '隐藏槽位手动预览；技能切换与特效未接入'):
+            self.assertNotIn(removed, text)
+        self.assertIn('资源目录不推断专武归属或游戏装备限制', text)
+        self.assertIn('仅唯一完整动作名匹配自动加载；其余留待选择', text)
+
+    def test_retired_search_cannot_leave_an_invisible_catalog_filter(self):
+        module = ast.parse((ROOT / 'Game/Endfield/Blender/weapons.py').read_text(encoding='utf-8'))
+        self.assertNotIn('catalog_search', ast.unparse(module))
+        ui = next(n for n in module.body if isinstance(n, ast.ClassDef)
+                  and n.name == 'RURI_UL_equipment_resources')
+        self.assertFalse(any(isinstance(n, ast.FunctionDef) and n.name == 'filter_items' for n in ui.body))
+
 
 if __name__ == '__main__':
     unittest.main()

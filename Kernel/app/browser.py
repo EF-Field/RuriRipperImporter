@@ -1856,6 +1856,7 @@ def _load_steps(context, state, seeds, clips, reset_scene, panel=""):
     """Read the statement off the main thread, place it, then play the performances."""
     host = host_port.current()
     options = as_options(state)
+    options["source_panel"] = panel
     if reset_scene and host_port.SceneGraph in host.capabilities:
         host.clear_scene(context)
     stated = None

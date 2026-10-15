@@ -83,13 +83,13 @@ def main():
     assert mount.resources[0].name == '塔尔11 · wpn_sword_0003'
     assert mount.resources[0].seed == rows[0]['seed']
     assert mount.resources[1].name == rows[1]['asset']
-    ui = SimpleNamespace(bitflag_filter_item=1)
-    for query in ('塔尔', 'wpn_sword_0003'):
-        mount.catalog_search = query
-        flags, _ = weapons.RURI_UL_equipment_resources.filter_items(ui, bpy.context, mount, 'resources')
-        assert flags[0] & ui.bitflag_filter_item and flags[1] == 0
-        checks.append('weapon_rna_search:' + query)
-    del ui
+    labels = []
+    layout = SimpleNamespace(label=lambda **kw: labels.append(kw))
+    weapons.RURI_UL_equipment_resources.draw_item(None, bpy.context, layout, mount,
+                                                 mount.resources[0], 0, mount, 'resource_index')
+    assert labels == [dict(text='塔尔11 · wpn_sword_0003', icon='MESH_DATA')]
+    assert 'catalog_search' not in mount.bl_rna.properties
+    checks.append('weapon_label_preserved_without_separate_search')
     actor = bpy.data.objects.new('name fixture', bpy.data.armatures.new('name fixture'))
     bpy.context.scene.collection.objects.link(actor)
     source = dict(slot=7, mode=mount.mode, status='ready', visible=True, weapon='wpn_sword_0003',

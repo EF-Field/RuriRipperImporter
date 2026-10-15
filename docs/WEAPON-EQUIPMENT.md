@@ -4,15 +4,24 @@ The Weapon / Mount pane now separates conventional equipment from fixed characte
 resources. Use the matching private backend built with this feature.
 
 1. Open the install's existing resource index in the usual browser.
-2. Select the imported character armature and read its weapon slots.
+2. Character imports automatically set Weapon's actor to the last successfully
+   imported rig. Its pointer-icon button selects that rig for subsequent character
+   actions; the actor picker can still be set manually. Read its weapon slots.
 3. Select an **equipment** slot, then scan the equipment catalog.
-4. Search and explicitly select a resource. Scanning selects nothing by default.
+4. Explicitly select a resource. Scanning selects nothing by default.
 5. Choose **装配／替换所选武器**. A successful replacement commits that character's
    selection; an import failure keeps its previous weapon and choice.
 
 Choices live on each character, survive save/reopen and are supplied back to the
 reader as an explicit slot-to-prefab mapping. No live player loadout is read.
 Fixed props stay in their original slots and retain their own manual preview.
+
+The compact mount pane has no separate catalog heading/search field or redundant
+bottom preview notice. Chinese/internal resource labels remain unchanged. Following
+Character imports is independent of animation auto-sync, clears previous actor's
+slot/action candidates, and does not steal the target during weapon/prop imports.
+The shared import-completion notification carries only caller UI metadata and the
+host build result; it does not interpret seeds or change backend data parsing.
 
 ## Catalog boundary
 
@@ -61,6 +70,10 @@ existing socket intentionally preserves its current transforms and animation.
 ## Verification
 
 - `tools/test_weapon_equipment_contract.py`: host-free synthetic contract checks.
+- `tools/test_import_completion.py`: import completion, exception isolation and
+  last-character selection without game/backend dependencies.
+- `tools/verify_weapon_ui_blender.py`: real Blender RNA, stepped import notifications,
+  compact row/removal contract, selection operator and register/unregister lifecycle.
 - `tools/verify_weapon_equipment_blender.py`: synthetic Blender 5.3 background
   checks for the real operators, frame matrices, replacement/rollback, cross-weapon
   animation, identity rename and save/reopen. No game reader or assets are opened.

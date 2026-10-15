@@ -42,6 +42,7 @@ def main():
     stub('Fixture.Kernel.statement', basis=lambda basis: {'root': SimpleNamespace(tolist=lambda: list(turn))})
     datasets = stub('Fixture.Game.Endfield.datasets', WEAPONS='fixture.slots',
                     WEAPON_CATALOG='fixture.catalog', WEAPON_MOUNTS='fixture.mounts')
+    stub('Fixture.Game.Endfield.roster', STATE='ruri_roster')
     def module(name, path):
         spec = importlib.util.spec_from_file_location(name, root / path)
         loaded = importlib.util.module_from_spec(spec)

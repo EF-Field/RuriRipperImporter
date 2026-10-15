@@ -16,6 +16,7 @@ from ....Kernel import statement
 from .. import datasets
 from .. import weapon_contract
 from .. import names_zh
+from .. import roster
 
 STATE = 'ruri_endfield_weapons'
 OWNER = 'ruri_weapon_owner'
@@ -261,12 +262,6 @@ class RURI_PG_equipment_resource(bpy.types.PropertyGroup):
 
 
 class RURI_UL_equipment_resources(bpy.types.UIList):
-    def filter_items(self, context, data, property):
-        query = data.catalog_search.strip().casefold()
-        flags = [self.bitflag_filter_item if not query or query in (item.name + ' ' + item.family).casefold()
-                 else 0 for item in getattr(data, property)]
-        return flags, []
-
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index=0, flt_flag=0):
         layout.label(text=item.name, icon='MESH_DATA' if item.status == 'ready' else 'ERROR')
 
@@ -289,7 +284,29 @@ class RURI_PG_weapons(bpy.types.PropertyGroup):
     candidate_seed: StringProperty()
     resources: CollectionProperty(type=RURI_PG_equipment_resource)
     resource_index: IntProperty(default=-1)
-    catalog_search: StringProperty(name='搜索武器', update=lambda self, context: setattr(self, 'resource_index', -1))
+
+
+def on_import(context, built, options):
+    """Follow the last rig placed by Character, without reading game data.
+
+    Weapon/prop loads use the same materialiser but do not originate from the
+    roster. They must never replace the character this page is editing.
+    This UI convenience is independent of animation/weapon auto-sync.
+    """
+    if options.get('source_game') != 'Endfield' or options.get('source_panel') != roster.STATE:
+        return
+    actor = built.rig
+    if not built.imported or actor is None or actor.type != 'ARMATURE':
+        return
+    state = getattr(context.scene, STATE)
+    state.actor = actor
+    state.seed = rig_identity.seed_of(actor)
+    state.rows.clear()
+    state.index = 0
+    state.candidates.clear()
+    state.candidate_index = 0
+    state.candidate_slot = -1
+    state.candidate_seed = ''
 
 
 def populate_slots(state, actor, rows):
@@ -370,8 +387,6 @@ class RURI_OT_equip_weapon(bpy.types.Operator):
             if selected.mode != state.mode or selected.resource_kind != 'equipment':
                 raise ValueError('请选择当前模式的装备槽；配饰与技能道具保持独立')
             resource = state.resources[state.resource_index]
-            if state.catalog_search.strip().casefold() not in (resource.name + ' ' + resource.family).casefold():
-                raise ValueError('当前选择被搜索条件隐藏，请重新选择目录项')
             socket, created = equip_selected(context, state.actor, selected.slot, resource.seed,
                                              browser.as_options(browser.state_of(context)))
             self.report({'INFO'}, '已装配：' + socket.name if created else '已装备此武器，保留原动画')
@@ -429,8 +444,11 @@ class RURI_OT_add_weapon(bpy.types.Operator):
 def draw_mount(layout, context):
     state = getattr(context.scene, STATE)
     layout.prop(state, 'auto_sync')
-    layout.prop(state, 'actor')
-    layout.operator('ruri.endfield_select_weapon_actor', text='选择角色（继续导入角色动作）')
+    row = layout.row(align=True)
+    row.prop(state, 'actor')
+    select = row.row(align=True)
+    select.enabled = bool(state.actor and state.actor.name in context.view_layer.objects and context.mode == 'OBJECT')
+    select.operator('ruri.endfield_select_weapon_actor', text='', icon='RESTRICT_SELECT_OFF')
     layout.prop(state, 'mode')
     layout.operator(RURI_OT_read_weapons.bl_idname)
     layout.template_list('UI_UL_list', 'endfield_weapons', state, 'rows', state, 'index', rows=4)
@@ -439,9 +457,7 @@ def draw_mount(layout, context):
         layout.label(text=selected.detail)
         if selected.resource_kind == 'equipment':
             box = layout.box()
-            box.label(text='装备武器 · 由你选择', icon='OUTLINER_OB_MESH')
             box.operator(RURI_OT_scan_weapon_catalog.bl_idname)
-            box.prop(state, 'catalog_search')
             box.template_list('RURI_UL_equipment_resources', 'equipment_catalog', state, 'resources',
                               state, 'resource_index', rows=5)
             box.label(text='资源目录不推断专武归属或游戏装备限制')
@@ -468,7 +484,6 @@ def draw_mount(layout, context):
                              state, 'candidate_index', rows=3)
         layout.operator('ruri.endfield_apply_weapon_action', text='加载此武器动作（可不选）', icon='ACTION')
     layout.label(text='仅唯一完整动作名匹配自动加载；其余留待选择')
-    layout.label(text='隐藏槽位手动预览；技能切换与特效未接入')
     if state.actor and any(o.get(OWNER) == state.actor and int(o.get(SPACE_VERSION, 1)) < 2
                            for o in context.scene.objects):
         layout.operator('ruri.endfield_repair_weapon_basis')
@@ -477,6 +492,7 @@ def draw_mount(layout, context):
 class RURI_OT_select_weapon_actor(bpy.types.Operator):
     bl_idname = 'ruri.endfield_select_weapon_actor'
     bl_label = '选择角色'
+    bl_description = '选中此角色骨架，继续导入角色动作'
 
     def execute(self, context):
         actor = getattr(context.scene, STATE).actor
@@ -551,6 +567,7 @@ def register():
         bpy.utils.register_class(cls)
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_weapons))
     from . import weapon_sync
+    loading.register_import_listener(on_import)
     loading.register_performance_listener(weapon_sync.on_performance)
     from .. import weapon
     weapon.register_section('mount', draw_mount)
@@ -560,6 +577,7 @@ def unregister():
     from .. import weapon
     weapon.drop_section('mount')
     from . import weapon_sync
+    loading.unregister_import_listener(on_import)
     loading.unregister_performance_listener(weapon_sync.on_performance)
     delattr(bpy.types.Scene, STATE)
     for cls in reversed(CLASSES):

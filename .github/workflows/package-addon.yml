@@ -27,6 +27,7 @@ jobs:
           python tools/test_first_run.py
           python tools/test_find_animations.py
           python tools/test_weapon_ui_contract.py
+          python tools/test_import_completion.py
           python tools/test_weapon_equipment_contract.py
           python tools/test_names_zh.py
           python tools/package_addon.py

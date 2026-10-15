@@ -146,18 +146,17 @@ class WeaponTests(unittest.TestCase):
         self.assertEqual((item.seed, item.family, item.status), ('fixture:exact-path', 'sword', 'ready'))
         self.assertEqual(state.resource_index, -1)
 
-    def test_actual_ui_filter_accepts_chinese_and_internal_name(self):
+    def test_actual_ui_displays_chinese_and_internal_name(self):
         tree = ast.parse((ROOT / 'Game/Endfield/Blender/weapons.py').read_text(encoding='utf-8'))
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'RURI_UL_equipment_resources')
-        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'filter_items')
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'draw_item')
         namespace = {}
-        exec(compile(ast.Module(body=[method], type_ignores=[]), '<weapon filter>', 'exec'), namespace)
-        data = SimpleNamespace(resources=[SimpleNamespace(name=names.weapon_label('wpn_sword_0003'), family='sword')])
-        for query in ('塔尔', 'WPN_SWORD_0003', 'sword', '  塔尔11 '):
-            data.catalog_search = query
-            self.assertEqual(namespace['filter_items'](SimpleNamespace(bitflag_filter_item=1), None, data, 'resources'), ([1], []))
-        data.catalog_search = 'unknown'
-        self.assertEqual(namespace['filter_items'](SimpleNamespace(bitflag_filter_item=1), None, data, 'resources'), ([0], []))
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '<weapon draw>', 'exec'), namespace)
+        labels = []
+        item = SimpleNamespace(name=names.weapon_label('wpn_sword_0003'), status='ready')
+        layout = SimpleNamespace(label=lambda **kw: labels.append(kw))
+        namespace['draw_item'](None, None, layout, None, item, 0, None, '')
+        self.assertEqual(labels, [dict(text='塔尔11 · wpn_sword_0003', icon='MESH_DATA')])
 
 
 if __name__ == '__main__':

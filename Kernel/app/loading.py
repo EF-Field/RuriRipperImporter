@@ -21,6 +21,20 @@ SEED_LINES = "\n"
 # after an activated performance landed. A companion never invalidates that import.
 _performance_listeners = []
 
+# UI companions observe completed imports, never interpret the statement or its
+# seeds. source_panel is optional caller metadata; direct loads leave it absent.
+_import_listeners = []
+
+
+def register_import_listener(callback):
+    if callback not in _import_listeners:
+        _import_listeners.append(callback)
+
+
+def unregister_import_listener(callback):
+    if callback in _import_listeners:
+        _import_listeners.remove(callback)
+
 
 def register_performance_listener(callback):
     if callback not in _performance_listeners:
@@ -80,6 +94,12 @@ def place(context, stated, options=None, report=None):
             texture = textures.get(material.textures.get(name, ""))
             texturing.record(values.get("role_product", ""), name, material.name,
                              texture.name if texture is not None else "")
+    if built.imported:
+        for callback in tuple(_import_listeners):
+            try:
+                callback(context, built, dict(values))
+            except Exception as exc:
+                built.warnings.append("Import companion note: " + str(exc))
     return built
 
 
