@@ -38,6 +38,7 @@ class WeaponUIContract(unittest.TestCase):
         self.assertFalse((ROOT / 'Game/Endfield/Blender/legacy52/runtime.py').exists())
         import package_addon
         self.assertFalse(any('/legacy52/' in path for path in package_addon.PUBLIC_SHADER_LIBRARIES))
+        self.assertTrue(package_addon.included('docs/WEAPON-EQUIPMENT.md'))
         self.assertTrue((ROOT / 'Game/Endfield/shader/Blender/ruri_character_uber_endfield.blend').is_file())
 
 

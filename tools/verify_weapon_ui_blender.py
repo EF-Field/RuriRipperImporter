@@ -9,6 +9,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 
 def main():
@@ -25,7 +26,12 @@ def main():
     addon = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = addon
     spec.loader.exec_module(addon)
-    addon.register()
+    def register_without_reader():
+        addon._DRIVER.reload_modules()
+        from RuriRipperImporter.Kernel import bootstrap as lifecycle_bootstrap
+        with patch.object(lifecycle_bootstrap, 'configure'):
+            addon._DRIVER.register()
+    register_without_reader()
     import bpy
     bpy.context.preferences.filepaths.recent_files = 0
     from RuriRipperImporter import Game
@@ -72,6 +78,10 @@ def main():
     mount.actor = actor
     item = mount.rows.add()
     item.name, item.status, item.mode = 'fixture weapon', 'ready', mount.mode
+    item.resource_kind = 'equipment'
+    resource = mount.resources.add()
+    resource.name, resource.seed, resource.family, resource.status = 'fixture resource', 'fixture:resource', 'fixture', 'ready'
+    mount.resource_index = 0
     candidate = mount.candidates.add()
     candidate.name, candidate.seed = 'fixture action', 'fixture:action'
     effects = getattr(bpy.context.scene, weapon_effects.STATE)
@@ -152,6 +162,7 @@ def main():
     bpy.ops.wm.open_mainfile(filepath=str(args.output / 'ui-fixture.blend'), load_ui=False, use_scripts=False)
     assert getattr(bpy.context.scene, weapon.STATE).pane == 'glow'
     assert getattr(bpy.context.scene, weapons.STATE).candidates[0].seed == 'fixture:action'
+    assert getattr(bpy.context.scene, weapons.STATE).resources[0].seed == 'fixture:resource'
     assert getattr(bpy.context.scene, weapon_effects.STATE).rows[0].name == 'fixture effect'
     region = getattr(bpy.context.scene, weapon_glow.STATE).regions[0]
     assert region.selected and region.role == 'independent fixture'
@@ -162,7 +173,7 @@ def main():
     addon.unregister()
     assert not hasattr(bpy.types.Scene, weapon.STATE)
     assert not weapon.SECTIONS.keys()
-    addon.register()
+    register_without_reader()
     from RuriRipperImporter.Game.Endfield import weapon as reloaded_weapon
     assert reloaded_weapon.SECTIONS.keys() == ('mount', 'effects', 'glow')
     addon.unregister()

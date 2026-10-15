@@ -112,7 +112,7 @@ def on_performance(context, actor, clip, landed, options):
         rows = weapons.rows_for(actor)
         weapons.populate_slots(state, actor, rows)
         attached = {int(o[weapons.SLOT]) for o in owned_sockets(actor)}
-        eligible = [r for r in rows if r['mode'] == state.mode and r['status'] == 'ready'
+        eligible = [r for r in rows if r['mode'] == state.mode and r['status'] in ('ready', 'cross_weapon_mount')
                     and (r['visible'] or int(r['slot']) in attached)]
         if not eligible:
             notes.append('当前状态没有可自动挂接的固定武器，可手动选择或忽略')

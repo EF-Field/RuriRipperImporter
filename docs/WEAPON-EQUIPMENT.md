@@ -1,0 +1,71 @@
+# Explicit equipment selection
+
+The Weapon / Mount pane now separates conventional equipment from fixed character
+resources. Use the matching private backend built with this feature.
+
+1. Open the install's existing resource index in the usual browser.
+2. Select the imported character armature and read its weapon slots.
+3. Select an **equipment** slot, then scan the equipment catalog.
+4. Search and explicitly select a resource. Scanning selects nothing by default.
+5. Choose **装配／替换所选武器**. A successful replacement commits that character's
+   selection; an import failure keeps its previous weapon and choice.
+
+Choices live on each character, survive save/reopen and are supplied back to the
+reader as an explicit slot-to-prefab mapping. No live player loadout is read.
+Fixed props stay in their original slots and retain their own manual preview.
+
+## Catalog boundary
+
+The private backend enumerates exact prefab container paths from the loaded
+CabTable. It groups by full path and counts distinct CAB owners. Ambiguous routes
+remain visible but unselectable. Conventional known families are selectable;
+unknown families are explicitly unclassified. Misc props are not equipment rows.
+This catalog does not decode WeaponBasicTable, claim a table weapon ID, infer
+signature ownership, or validate in-game equipment-type restrictions. Display
+labels are prefab asset names. There is no guessed signature recommendation.
+
+## Assembly contract
+
+The selected resource fills an equipment slot; the slot still owns its authored
+idle/fight mount and uniform scale. Resource state, mount state, default visibility
+and selection provenance are separate columns. Cross-weapon edges retain their
+target slot and mount key. Parents are prepared before children, with cycle and
+missing-dependency checks. Hidden dependencies are retained in this manual preview;
+this is not automatic gameplay visibility.
+
+Character targets resolve through stamped rig identity. Cross-weapon mount keys
+resolve through authored component entries and exact transform paths, never a
+Handle/leaf-name guess. Multiple component entries for one key are ambiguous.
+An unrepresented target can carry source local transforms from its nearest
+represented ancestor bone; an unresolved/generated target fails explicitly.
+Independent/world mounts are not silently converted to a character hand bone.
+
+Column vectors, rightmost operation first:
+
+`weapon world = parent frame world * mount offset * slot scale * inverse(host root turn) * imported root`
+
+The ordinary import retains prefab transforms and the weapon's separate skeleton.
+Before reading imported root world matrices, the assembler evaluates Blender's
+dependency graph. The materialiser writes local transforms; reading an unevaluated
+world matrix can introduce an extra root turn, especially for rigid weapons.
+This assembly does not impose a weapon anchor, game skill timing or a per-character
+rotation correction. Old version-2 direct attachments remain reusable; replacing
+an untagged legacy tree or a tree with user-added objects requires manual review.
+Replacing a parent with dependent sockets is rejected instead of deleting them.
+
+Existing attachments are not silently rotated by the fix. If an old attachment
+was created with the stale-matrix defect, preserve the file, then remove that
+socket and its weapon objects and import the selected weapon again. Reusing an
+existing socket intentionally preserves its current transforms and animation.
+
+## Verification
+
+- `tools/test_weapon_equipment_contract.py`: host-free synthetic contract checks.
+- `tools/verify_weapon_equipment_blender.py`: synthetic Blender 5.3 background
+  checks for the real operators, frame matrices, replacement/rollback, cross-weapon
+  animation, identity rename and save/reopen. No game reader or assets are opened.
+- Private `tests/Weapons`: synthetic catalog/choice tests and compilation against
+  the accepted reader API.
+
+Synthetic numerical tests are not real-character grip visual acceptance or proof
+of in-game compatibility. Test real imports manually before adopting the candidate.

@@ -8,6 +8,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "RuriRipperImporter"
 ROOT_FILES = {"__init__.py", "LICENSE", "README.md", "INSTALL.md"}
+PUBLIC_DOCS = {"docs/WEAPON-EQUIPMENT.md"}
 SOURCE_DIRS = {"Game", "Host", "Kernel", "RuriYamlDumper"}
 FORBIDDEN = {".dll", ".exe", ".pdb", ".tpk", ".blend", ".cabmap", ".nupkg", ".pyc"}
 # Upstream public node libraries are plugin resources, not game/test scenes.
@@ -31,7 +32,7 @@ def included(path):
     p = PurePosixPath(path)
     if p.is_absolute() or ".." in p.parts or "\\" in path:
         raise ValueError(f"Invalid repository path: {path}")
-    return path in ROOT_FILES or p.parts[0] in SOURCE_DIRS
+    return path in ROOT_FILES or path in PUBLIC_DOCS or p.parts[0] in SOURCE_DIRS
 
 
 def git(*args):

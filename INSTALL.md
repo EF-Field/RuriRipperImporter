@@ -225,3 +225,11 @@ RNA classes. Candidate packages do not modify the existing installed runtime.
 每次只显示一组。原来的三个独立侧栏面板已移除，功能和场景状态保持原样。
 `Endfield Shader Compatibility` 面板、5.2 模式切换适配器及其独立资源已从
 main 前端移除；Native 5.3 材质流程保持原样。5.2 维护分支／检出未变动。
+
+## 自选装备武器
+
+使用匹配后端后，在 Weapon / 武器挂载中读取角色槽位，选择装备槽，扫描目录、
+搜索并明确选中武器，再点击 **装配／替换所选武器**。武器选择按角色保存；
+替换失败保留旧武器，角色动作及固定配饰保持独立。扫描后没有默认选择。
+本次不推断专武归属、玩家当前装备或游戏装备类型限制。详见
+[操作流程与验证边界](docs/WEAPON-EQUIPMENT.md)。
