@@ -7,7 +7,7 @@ branch is rebuilt after the normal host compiles a managed material's source.
 import json
 
 import bpy
-from bpy.props import BoolProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
 
 from ....Host.Blender import material_builder
 from . import weapons
@@ -101,14 +101,50 @@ def scan(context):
     target = target_of(context)
     materials = list(dict.fromkeys(slot.material.get(BASE, slot.material)
                     for obj in meshes_of(target) for slot in obj.material_slots if slot.material))
-    strings = [mat for mat in materials if image_of(mat, '_MainTex')
-               and ('objectline' in mat.name.casefold() or mat.get('ruri_uber_part') == 'VFX')]
-    patterns = [mat for mat in materials if image_of(mat, '_EmissionMap')]
-    if len(strings) != 1 or len(patterns) != 1:
-        raise ValueError('材质角色未唯一识别，请手动选择光弦材质与纹路材质')
+    state.regions.clear()
+    # Old saved panel pointers are migration input only, never a second catalog.
+    state.string_material = state.pattern_material = None
     state.target = target
-    state.string_material, state.pattern_material = strings[0], patterns[0]
-    state.note = '已找到光弦与主体发光贴图；应用后使用独立材质副本'
+    owned = {mat[BASE]: mat for mat in owned_materials(target)}
+    for mat in materials:
+        emission = image_of(mat, '_EmissionMap')
+        main = image_of(mat, '_MainTex')
+        if not emission and not main and mat not in owned:
+            continue
+        item = state.regions.add()
+        item.material = mat
+        item.selected = bool(emission or mat in owned)
+        item.role = '纹路' if emission else '独立区域'
+        item.mask = emission or main
+        # A MainTex is only a candidate. Neither VFX nor a material name proves
+        # an emissive role, an auxiliary-mask product, or a default visible state.
+        if mat in owned:
+            settings = getattr(owned[mat], SETTINGS)
+            item.role, item.mask = settings.role, settings.mask
+            item.mask_secondary = settings.mask_secondary
+    state.note = ('找到 %d 个候选区域；普通贴图候选需确认，新区域默认关闭' % len(state.regions)
+                  if state.regions else '未发现发光贴图候选；可以保持原材质，或手动添加区域')
+
+
+def add_region(context):
+    state = getattr(context.scene, STATE)
+    target = target_of(context)
+    material = state.material
+    originals = {slot.material.get(BASE, slot.material) for obj in meshes_of(target)
+                 for slot in obj.material_slots if slot.material}
+    if material is None:
+        raise ValueError('请先选择此目标上的材质')
+    material = material.get(BASE, material)
+    if material not in originals:
+        raise ValueError('所选材质不属于此目标')
+    if any(item.material == material for item in state.regions):
+        raise ValueError('此材质已在区域列表中，请直接勾选或编辑')
+    item = state.regions.add()
+    item.material, item.selected = material, True
+    item.role = '独立区域'
+    item.mask = image_of(material, '_EmissionMap')
+    state.target = target
+    state.note = '已添加独立区域；无遮罩表示整个材质，新区域默认关闭'
 
 
 def _output(material):
@@ -159,7 +195,7 @@ def rebuild(material):
         made.label = label
         made.parent = frame
         return made
-    emission = node('ShaderNodeEmission', '独立光弦／纹路自发光')
+    emission = node('ShaderNodeEmission', '独立区域自发光')
     emission.inputs['Color'].default_value = settings.color
     emission.inputs['Strength'].default_value = settings.strength
     for image in (settings.mask, settings.mask_secondary):
@@ -213,9 +249,19 @@ def changed(self, context):
 def apply(context):
     state = getattr(context.scene, STATE)
     target = target_of(context)
-    sources = (state.string_material, state.pattern_material)
-    if any(mat is None or mat.library for mat in sources) or sources[0] == sources[1]:
-        raise ValueError('请选择两个不同的本地光弦／纹路材质')
+    regions = [(item.material, item.role, item.mask, item.mask_secondary)
+               for item in state.regions if item.selected]
+    if not state.regions:
+        # Support old saved selections without requiring either half of the pair.
+        regions = [(mat, role, image_of(mat, key), None)
+                   for mat, role, key in ((state.string_material, '光弦', '_MainTex'),
+                                          (state.pattern_material, '纹路', '_EmissionMap')) if mat]
+    if not regions:
+        state.note = '未选择发光区域，原材质保持不变'
+        return
+    sources = [entry[0] for entry in regions]
+    if any(mat is None or mat.library for mat in sources):
+        raise ValueError('请选择有效的本地材质')
     meshes = meshes_of(target)
     if target.library or any(obj.library for obj in meshes):
         raise ValueError('请选择本地武器对象；共享网格使用对象级材质副本')
@@ -224,11 +270,11 @@ def apply(context):
     if any(mat.get(BASE, mat) not in originals for mat in sources):
         raise ValueError('所选材质不属于此武器')
     resolved = [mat.get(BASE, mat) for mat in sources]
-    if image_of(resolved[1], '_EmissionMap') is None:
-        raise ValueError('纹路材质缺少已导入的 _EmissionMap 贴图')
+    if len(set(resolved)) != len(resolved):
+        raise ValueError('同一来源材质只添加一个区域；不同网格可分别选择目标')
     made, bindings = [], []
     try:
-        for source, role, strength in zip(resolved, ('光弦', '纹路'), (STRING_STRENGTH, 6.0)):
+        for source, (_, role, mask, secondary) in zip(resolved, regions):
             existing = [mat for mat in owned_materials(target) if mat.get(BASE) == source]
             if len(existing) > 1:
                 raise ValueError('同一来源存在多份受管材质，请先整理')
@@ -242,11 +288,11 @@ def apply(context):
             material_builder.content(material)
             settings = getattr(material, SETTINGS)
             settings.role = role
-            settings.color = NORMAL_COLOR
-            settings.mask = image_of(source, '_MainTex' if role == '光弦' else '_EmissionMap')
-            settings.mask_secondary = image_of(source, '_MaskTex') if role == '光弦' else None
-            settings.strength = strength
-            settings.enabled = role == '光弦'
+            settings.color = (1, 1, 1, 1)
+            settings.mask = mask
+            settings.mask_secondary = secondary
+            settings.strength = 3
+            settings.enabled = False
             record_settings(material)
             rebuild(material)
             for obj in meshes:
@@ -261,7 +307,7 @@ def apply(context):
                     slot.link = 'OBJECT'
                     slot.material = material
         state.target = target
-        state.note = '发光材质已应用；新副本默认仅光弦开启，已有调整保留'
+        state.note = '已准备独立发光区域；新区域默认关闭，已有调整保留'
     except Exception:
         for obj, index, link, source in reversed(bindings):
             slot = obj.material_slots[index]
@@ -284,9 +330,9 @@ def normal(context):
     """Explicit preset for new or previous-version copies; never auto-migrate art."""
     target = target_of(context)
     materials = owned_materials(target)
-    if sorted(getattr(mat, SETTINGS).role for mat in materials) != ['光弦', '纹路']:
-        raise ValueError('请先应用光弦／纹路静态发光')
-    for material in materials:
+    if not any(getattr(mat, SETTINGS).role == '光弦' for mat in materials):
+        raise ValueError('此弓参考预设仅适用于明确标记为“光弦”的区域')
+    for material in (mat for mat in materials if getattr(mat, SETTINGS).role in ('光弦', '纹路')):
         settings = getattr(material, SETTINGS)
         pointer = material.as_pointer()
         _HYDRATING.add(pointer)
@@ -299,7 +345,7 @@ def normal(context):
             _HYDRATING.discard(pointer)
         record_settings(material)
         rebuild(material)
-    getattr(context.scene, STATE).note = '正常状态：蓝紫光弦开启，武器纹路发光关闭'
+    getattr(context.scene, STATE).note = '弓参考预设：蓝紫光弦开启，纹路关闭；其他区域保持原样'
 
 
 def restore(context):
@@ -338,17 +384,39 @@ class RURI_PG_weapon_glow(bpy.types.PropertyGroup):
     role: StringProperty()
     enabled: BoolProperty(name='启用静态发光', default=False, update=changed)
     color: FloatVectorProperty(name='发光颜色', size=4, subtype='COLOR', min=0, max=1,
-                               default=NORMAL_COLOR, update=changed)
+                               default=(1, 1, 1, 1), update=changed)
     strength: FloatProperty(name='发光强度', min=0, soft_max=20, max=1000, default=3, update=changed)
     mask: PointerProperty(name='发光遮罩', type=bpy.types.Image, update=changed)
     mask_secondary: PointerProperty(name='辅助遮罩', type=bpy.types.Image, update=changed)
 
 
+class RURI_PG_glow_region(bpy.types.PropertyGroup):
+    material: PointerProperty(type=bpy.types.Material)
+    selected: BoolProperty(name='选择区域', default=False)
+    role: StringProperty(name='区域标签', default='独立区域')
+    mask: PointerProperty(name='遮罩（空为整个材质）', type=bpy.types.Image)
+    mask_secondary: PointerProperty(name='辅助遮罩（可选）', type=bpy.types.Image)
+
+
 class RURI_PG_weapon_glow_panel(bpy.types.PropertyGroup):
     target: PointerProperty(type=bpy.types.Object)
+    regions: CollectionProperty(type=RURI_PG_glow_region)
+    material: PointerProperty(type=bpy.types.Material)
     string_material: PointerProperty(type=bpy.types.Material)
     pattern_material: PointerProperty(type=bpy.types.Material)
     note: StringProperty()
+
+
+class RURI_OT_glow_add_region(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_glow_add_region'
+    bl_label = '添加独立区域'
+    def execute(self, context):
+        try:
+            add_region(context)
+        except Exception as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class RURI_OT_weapon_glow_scan(bpy.types.Operator):
@@ -365,7 +433,7 @@ class RURI_OT_weapon_glow_scan(bpy.types.Operator):
 
 class RURI_OT_weapon_glow_apply(bpy.types.Operator):
     bl_idname = 'ruri.endfield_weapon_glow_apply'
-    bl_label = '应用光弦／纹路静态发光'
+    bl_label = '应用所选发光区域'
     bl_options = {'REGISTER', 'UNDO'}
     def execute(self, context):
         try:
@@ -391,7 +459,7 @@ class RURI_OT_weapon_glow_restore(bpy.types.Operator):
 
 class RURI_OT_weapon_glow_normal(bpy.types.Operator):
     bl_idname = 'ruri.endfield_weapon_glow_normal'
-    bl_label = '正常状态：仅光弦发光'
+    bl_label = '弓参考预设：仅光弦发光'
     bl_options = {'REGISTER', 'UNDO'}
     def execute(self, context):
         try:
@@ -406,31 +474,39 @@ def draw_glow(layout, context):
     state = getattr(context.scene, STATE)
     layout.prop(state, 'target', text='武器目标')
     layout.operator(RURI_OT_weapon_glow_scan.bl_idname)
-    layout.prop(state, 'string_material', text='光弦材质')
-    layout.prop(state, 'pattern_material', text='纹路材质')
+    for item in state.regions:
+        box = layout.box()
+        box.prop(item, 'selected', text=item.material.name if item.material else '材质已移除')
+        box.prop(item, 'role', text='区域标签')
+        box.prop(item, 'mask')
+        box.prop(item, 'mask_secondary')
+    layout.prop(state, 'material', text='手动添加材质')
+    layout.operator(RURI_OT_glow_add_region.bl_idname)
     layout.operator(RURI_OT_weapon_glow_apply.bl_idname)
-    layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
+    if state.target and any(getattr(mat, SETTINGS).role == '光弦' for mat in owned_materials(state.target)):
+        layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
     if state.target and state.target.name in context.scene.objects:
         for material in owned_materials(state.target):
             settings = getattr(material, SETTINGS)
             box = layout.box()
-            box.label(text=settings.role + ' · 独立控制')
+            box.label(text=material.name + ' · ' + settings.role)
             box.prop(settings, 'enabled')
             box.prop(settings, 'color')
             box.prop(settings, 'strength')
             box.prop(settings, 'mask')
-            if settings.role == '光弦':
-                box.prop(settings, 'mask_secondary')
+            box.prop(settings, 'mask_secondary')
             if material.get(ERROR):
                 box.label(text=material[ERROR][:90], icon='ERROR')
     layout.operator(RURI_OT_weapon_glow_restore.bl_idname)
     layout.label(text='仅 Blender 静态材质；不涉及游戏动态逻辑', icon='INFO')
     layout.label(text='自发光≠光晕；合成器辉光保持原设置')
+    layout.label(text='贴图候选不代表游戏显隐；无需光弦与纹路配对')
     if state.note:
         layout.label(text=state.note[:90])
 
 
-CLASSES = (RURI_PG_weapon_glow, RURI_PG_weapon_glow_panel, RURI_OT_weapon_glow_scan,
+CLASSES = (RURI_PG_weapon_glow, RURI_PG_glow_region, RURI_PG_weapon_glow_panel,
+           RURI_OT_glow_add_region, RURI_OT_weapon_glow_scan,
            RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal)
 
 

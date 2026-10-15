@@ -80,6 +80,11 @@ def main():
     item.name = 'fixture effect'
     item.payload = json.dumps({'status': 'ready'})
     effects.placement, effects.anchor = 'ANCHOR', actor
+    glow = getattr(bpy.context.scene, weapon_glow.STATE)
+    region = glow.regions.add()
+    region.material = bpy.data.materials.new('UI fixture emission')
+    region.selected = True
+    region.role = 'independent fixture'
 
     class RecordingLayout:
         def __init__(self, calls=None):
@@ -148,6 +153,9 @@ def main():
     assert getattr(bpy.context.scene, weapon.STATE).pane == 'glow'
     assert getattr(bpy.context.scene, weapons.STATE).candidates[0].seed == 'fixture:action'
     assert getattr(bpy.context.scene, weapon_effects.STATE).rows[0].name == 'fixture effect'
+    region = getattr(bpy.context.scene, weapon_glow.STATE).regions[0]
+    assert region.selected and region.role == 'independent fixture'
+    assert region.material.name == 'UI fixture emission'
     report.update(pane_save_reopen=True, old_feature_state_retained=True, standalone_panels_removed=True,
                   compatibility_removed=True, native_provider_retained=True, weapon_without_index=True)
     report.update(character_index_gate_retained=True, game_switch_drops_weapon_tab=True)

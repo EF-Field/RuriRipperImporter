@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--reopen', action='store_true')
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--fixtures-only', action='store_true')
+    parser.add_argument('--generic-scene', action='store_true')
     parser.add_argument('--addon-root', type=Path)
     parser.add_argument('--engine', choices=('CYCLES', 'BLENDER_EEVEE'), default='CYCLES')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
@@ -42,6 +43,33 @@ def main():
         return
     assert args.blend, '--blend is required for exported-scene tests'
     bpy.ops.wm.open_mainfile(filepath=str(args.blend), load_ui=False, use_scripts=False)
+    if args.generic_scene:
+        target = next(obj for obj in bpy.context.scene.objects if obj.get(weapons.OWNER))
+        state = getattr(bpy.context.scene, glow.STATE)
+        state.target = target
+        slots = [(obj, i, slot.material.name, slot.link) for obj in glow.meshes_of(target)
+                 for i, slot in enumerate(obj.material_slots)]
+        glow.scan(bpy.context)
+        selected = sum(item.selected for item in state.regions)
+        assert selected > 0
+        glow.apply(bpy.context)
+        assert len(glow.owned_materials(target)) == selected
+        assert all(not getattr(mat, glow.SETTINGS).enabled for mat in glow.owned_materials(target))
+        for mat in glow.owned_materials(target):
+            getattr(mat, glow.SETTINGS).enabled = True
+            getattr(mat, glow.SETTINGS).strength = 7
+        material_builder.rebuild_plugin_data(purge=True)
+        assert all(getattr(mat, glow.SETTINGS).strength == 7 and not mat.get(glow.ERROR)
+                   for mat in glow.owned_materials(target))
+        glow.restore(bpy.context)
+        assert all(obj.material_slots[i].material.name == name and obj.material_slots[i].link == link
+                   for obj,i,name,link in slots)
+        report = dict(generic_scene=True, selected=selected, independent_regions=True,
+                      disabled_default=True, host_recompile=True, restore=True, source_saved=False)
+        (args.output / 'generic-report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        print('WEAPON_GENERIC_GLOW_PASS', report, flush=True)
+        addon.unregister()
+        return
     targets = [obj for obj in bpy.context.scene.objects if obj.get(weapons.OWNER)
                and any('wpn_misc_0051' in mesh.name for mesh in glow.meshes_of(obj))]
     assert len(targets) == 1, [obj.name for obj in targets]
@@ -70,7 +98,13 @@ def main():
         report = dict(reopen=True, rebuilt=True, restored=True, blender=bpy.app.version_string)
     else:
         assert bpy.ops.ruri.endfield_weapon_glow_scan() == {'FINISHED'}
-        sources = [state.string_material, state.pattern_material]
+        # Explicitly classify this bow fixture, not a rule for arbitrary VFX.
+        for item in state.regions:
+            item.selected = True
+            if glow.image_of(item.material, '_MainTex'):
+                item.role = '光弦'
+                item.mask_secondary = glow.image_of(item.material, '_MaskTex')
+        sources = [item.material for item in state.regions]
         source_graphs = {mat.name: (len(mat.node_tree.nodes), len(mat.node_tree.links)) for mat in sources}
         outside = meshes[0].copy()
         outside.name = 'QA shared mesh outside weapon'
@@ -81,6 +115,8 @@ def main():
         materials = glow.owned_materials(target)
         assert len(materials) == 2
         assert all(not mat.get(glow.ERROR) for mat in materials)
+        assert all(not getattr(mat, glow.SETTINGS).enabled for mat in materials)
+        glow.normal(bpy.context)  # Bow art is an explicit preset, not a default.
         assert all(getattr(mat, glow.SETTINGS).enabled ==
                    (getattr(mat, glow.SETTINGS).role == '光弦') for mat in materials)
         assert all(slot.material == mat for slot, mat in zip(outside.material_slots, outside_materials))
@@ -163,6 +199,8 @@ def fixtures(bpy, glow):
     objects[1].material_slots[0].material = sources[1]
     state.target = target
     glow.scan(bpy.context)
+    for item in state.regions:
+        item.selected = True
     baseline_materials = set(bpy.data.materials)
     output = glow._output(sources[1])
     old = output.inputs['Surface'].links[0].from_socket
@@ -200,8 +238,82 @@ def fixtures(bpy, glow):
     assert objects[1].material_slots[0].link == 'OBJECT'
     assert shared.active_material == before[0]
     assert set(bpy.data.materials) == baseline_materials | {before[0]}
-    return dict(rollback=True, data_and_object_slots=True, changed_slot_guard=True,
-                external_shared_copy_retained=True, unused_copy_removed=True, standalone_target=True)
+    result = dict(rollback=True, data_and_object_slots=True, changed_slot_guard=True,
+                  external_shared_copy_retained=True, unused_copy_removed=True, standalone_target=True)
+    result.update(region_fixtures(bpy, glow, image))
+    return result
+
+
+def region_fixtures(bpy, glow, image):
+    state = getattr(bpy.context.scene, glow.STATE)
+    for count in (0, 1, 3):
+        target = bpy.data.objects.new('QA region count %d' % count, None)
+        bpy.context.scene.collection.objects.link(target)
+        originals = []
+        for i in range(max(count, 1)):
+            mat = bpy.data.materials.new('QA independent %d-%d' % (count, i))
+            mat.use_nodes = True
+            if count:
+                mat['ruri_uber_images'] = {'_EmissionMap': image}
+            mesh = bpy.data.meshes.new('QA independent mesh')
+            mesh.materials.append(mat)
+            obj = bpy.data.objects.new('QA independent mesh', mesh)
+            bpy.context.scene.collection.objects.link(obj)
+            obj.parent = target
+            originals.append(mat)
+        state.target = target
+        glow.scan(bpy.context)
+        assert len(state.regions) == count
+        glow.apply(bpy.context)
+        assert len(glow.owned_materials(target)) == count
+        for mat in glow.owned_materials(target):
+            settings = getattr(mat, glow.SETTINGS)
+            assert not settings.enabled and tuple(settings.color) == (1,1,1,1)
+            settings.enabled, settings.strength = True, 9
+        glow.scan(bpy.context)
+        glow.apply(bpy.context)
+        assert all(getattr(mat, glow.SETTINGS).strength == 9 for mat in glow.owned_materials(target))
+        glow.restore(bpy.context)
+        assert not glow.owned_materials(target)
+    # A generic VFX MainTex is not automatically selected or called a string.
+    originals[0]['ruri_uber_images'] = {'_MainTex': image}
+    originals[0]['ruri_uber_part'] = 'VFX'
+    glow.scan(bpy.context)
+    item = next(r for r in state.regions if r.material == originals[0])
+    assert not item.selected and item.role == '独立区域'
+    for r in state.regions:
+        r.selected = r == item
+    glow.apply(bpy.context)
+    assert len(glow.owned_materials(target)) == 1
+    glow.restore(bpy.context)
+    # Manual untextured region and duplicate rejection.
+    state.regions.clear()
+    state.material = originals[0]
+    glow.add_region(bpy.context)
+    assert len(state.regions) == 1 and state.regions[0].mask is None
+    try:
+        glow.add_region(bpy.context)
+        raise AssertionError('Expected duplicate region rejection')
+    except ValueError:
+        pass
+    glow.apply(bpy.context)
+    assert len(glow.owned_materials(target)) == 1
+    glow.restore(bpy.context)
+    # Saved legacy selection of either half is still usable independently.
+    state.regions.clear()
+    state.string_material, state.pattern_material = None, originals[1]
+    glow.apply(bpy.context)
+    assert len(glow.owned_materials(target)) == 1
+    glow.restore(bpy.context)
+    state.pattern_material, state.string_material = None, originals[0]
+    glow.apply(bpy.context)
+    assert len(glow.owned_materials(target)) == 1
+    glow.restore(bpy.context)
+    glow.scan(bpy.context)
+    assert state.string_material is None and state.pattern_material is None
+    return dict(zero_one_many_regions=True, vfx_not_string=True, maintex_opt_in=True,
+                independent_maintex=True, manual_region=True, duplicate_guard=True,
+                legacy_single_selection=True, existing_controls_preserved=True)
 
 
 def render(bpy, glow, target, output, engine):
