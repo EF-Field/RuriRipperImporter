@@ -45,7 +45,7 @@
 凡是「解析某游戏的表/名字/槽位/材质码/LOD 规则/闭包/资产发现/种子拼法」,一律实现在 hook:
 
 ```
-D:\Ruri\Git\FractalTools\Ruri-RipperHook\Source\Ruri.GameHook   (每游戏的黑盒)
+D:/Github/Ruri-Offline/BlenderPlugin/work/sync/backend-upstream/Source/Endfield-GameHook (本分支的私有适配器)
 D:\Ruri\Git\FractalTools\Ruri-RipperHook\Source\Ruri.RipperHook (内核:statement、cabmap、数据集)
 ```
 
