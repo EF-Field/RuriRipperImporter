@@ -1,6 +1,6 @@
 """Ruri Blender 材质栈运行时(生成物,勿手改)。
 
-本平台产物同批同 stamp(c964f069520d9540):每个生成栈一个 <栈名>.blend(模板节点组库,codegen 期
+本平台产物同批同 stamp(e2af1cf7306b5e24):每个生成栈一个 <栈名>.blend(模板节点组库,codegen 期
 headless 物化),外加包清单 RuriManifest.json(管线映射 pipeline + 全部栈清单 stacks;导入时把
 stacks 载入为 MANIFESTS,每条自带它的 blend 文件名与组名单),外加**全平台唯一的**本文件
 (平台 ruri_girlsfrontline 的包入口)—— 运行时。
@@ -1131,6 +1131,37 @@ def _cap_main_light(g, query, ctx):
     }
 
 
+def _first_sun(scene):
+    """场景里的第一盏太阳灯(scene.objects 的序)。几何节点树里没有灯节点,主光只能指定一盏:取第一个 sun。"""
+    return next((obj for obj in scene.objects if obj.type == 'LIGHT' and obj.data.type == 'SUN'), None)
+
+
+def _vertex_main_light(tree, scene, swap_yz):
+    """几何节点里的主方向光:第一个 sun 相对本物体的变换(Object Info 相对模式,与顶点腿读相机同一套约定:
+    物体空间当世界),朝灯方向 = 灯的 +Z 轴(太阳朝 -Z 照),再换到 Unity 轴。灯一转几何跟着重算(依赖图原生,
+    不经脚本刷新)。几何树读不到灯的数据,颜色没有原生等价物 —— 明说答不出(None),口停在缺席值上;距离衰减与阴影衰减
+    恒 1 是这条能力自己的语义(与片元腿同答)。场景里没有 sun = 答不出:空的 Object 槽会给出单位变换,不能当方向用。"""
+    sun = _first_sun(scene)
+    if sun is None:
+        return None
+    info = tree.nodes.new('GeometryNodeObjectInfo')
+    info.transform_space = 'RELATIVE'
+    info.inputs['Object'].default_value = sun
+    toward = tree.nodes.new('FunctionNodeTransformDirection')
+    toward.inputs['Direction'].default_value = (0.0, 0.0, 1.0)
+    tree.links.new(info.outputs['Transform'], toward.inputs['Transform'])
+    unit = tree.nodes.new('ShaderNodeVectorMath')
+    unit.operation = 'NORMALIZE'
+    tree.links.new(toward.outputs[0], unit.inputs[0])
+    return {
+        'direction': swap_yz(unit.outputs[0]),
+        'distanceAttenuation': 1.0,
+        'shadowAttenuation': 1.0,
+        'layerMask': 1.0,
+        'color': None,
+    }
+
+
 def _shadow_raycast(g, position):
     """这一圈灯的原生 Shadow Raycast。询问带位置就在那个位置求值(真源把采样点沿光向推过一段时,推过的位置
     就是询问),同一个位置只建一个节点 —— 主光与附加光的阴影问的常是同一点;不带位置 = 着色点本身,用共享的
@@ -1410,6 +1441,12 @@ CAP_BUILDERS = {
     'ScreenSpaceOcclusion': _cap_screen_space_occlusion,
 }
 
+# 能力身份 → 建图器(几何节点一条腿,顶点腿):(树, 场景, Y/Z 对调) → {叶: 接口 socket | 常量 | None(这一叶答不出)};
+# 整个返回 None = 本场景答不出。表里查不到 = 什么都不接,口停在能力自声明缺席值上并大声记账。
+CAP_VERTEX_BUILDERS = {
+    'MainLight': _vertex_main_light,
+}
+
 # 能力身份 → 逐物体的宿主数据准备(兑现面读的网格属性由它写):(物体, 询问它的槽, 本物体其余着色槽)。
 # 只在导入那一刻跑(apply_vertex_stage),量的是网格自己的几何事实。
 CAP_PREPARERS = {
@@ -1587,6 +1624,7 @@ class Stack:
         self.ST_SLOT = names.get('st_slot', '_BaseMap')
         self.ST_NODE = names.get('st_node', 'RuriBaseMapST')
         self.VERTEX_PARTS = manifest.get('vertex_parts') or {}
+        self.VERTEX_ANSWERS = manifest.get('vertex_host_answers') or {}
         # 作者值住 sRGB 的属性名(见清单同名键)。快照恒是 .mat 里的原值,线性化只发生在
         # 「值 → uniform」那一步,与 Unity 上传时做的那次是同一件事。
         self.SRGB_PARAMS = set(manifest.get('srgb_params') or [])
@@ -3682,6 +3720,37 @@ class Stack:
         self.push_rig_basis()
         return done
 
+    def _answer_vertex_capabilities(self, tree, node, part, scene, swap_yz, answers):
+        """顶点腿上的环境询问兑现:组上的答案口按能力查 CAP_VERTEX_BUILDERS,在这个物体自己的树上接宿主的原生等价物。
+        查不到 / 场景里答不出 = 什么都不接,口停在能力自声明的缺席值上并大声记一笔;建图器明说答不了的叶
+        (值为 None)同样记一笔。同一棵树里一个能力只建一次,几个组实例共用同一批答案。"""
+        for row in self.VERTEX_ANSWERS.get(part) or []:
+            cap = row['cap']
+            if cap not in answers:
+                builder = CAP_VERTEX_BUILDERS.get(cap)
+                if builder is None:
+                    print('[ruri-cap] {0} 几何节点里无原生等价物 → 缺席值'.format(cap), flush=True)
+                    answers[cap] = {}
+                else:
+                    answer = builder(tree, scene, swap_yz)
+                    if answer is None:
+                        print('[ruri-cap] {0} 本场景答不出(几何节点)→ 缺席值'.format(cap), flush=True)
+                        answer = {}
+                    missing = [leaf for leaf in row['results'] if answer and leaf not in answer]
+                    if missing:
+                        raise RuntimeError('[ruri-cap] {0}: 几何节点建图器少答了结果叶 {1}'.format(cap, missing))
+                    answers[cap] = answer
+            for leaf, value in answers[cap].items():
+                sock = node.inputs.get(row['sock'] + ('_' + leaf if leaf else ''))
+                if sock is None:
+                    continue
+                if value is None:
+                    print('[ruri-cap] {0}.{1} 几何节点里无原生等价物 → 缺席值'.format(cap, leaf or '(值)'), flush=True)
+                elif isinstance(value, bpy.types.NodeSocket):
+                    tree.links.new(value, sock)
+                else:
+                    sock.default_value = value
+
     def apply_vertex_stage(self, objects, camera=None):
         """壳层位移 + 反壳描边的壳(同树虚拟几何;壳往外挪多少在材质的位移出口里逐视图算,见 _wire_outline)。
         **唯一的生成途径 = 从游戏读材质、造出这批对象的那一刻**:objects 只能是导入刚造出来的对象,没有「整场景」、
@@ -3779,6 +3848,7 @@ class Stack:
                 mt.links.new(sep.outputs[1], comb.inputs[2])
                 return comb.outputs[0]
 
+            answers = {}
             tbn_cache = []
 
             def uv_tangent(swap):
@@ -3870,6 +3940,7 @@ class Stack:
                 self._fill_uniform_sockets(gn, floats, st, colors)
                 wire_vertex_inputs(gn)
                 self._write_screen_sockets(gn, screen)
+                self._answer_vertex_capabilities(mt, gn, part, scene, swap_yz, answers)
                 self._vtx_expose(mt, gin, gn, mat, knobs, panels, template_name, state,
                                  self._material_images(mat))
                 self._vtx_own_samplers(gn, self._material_images(mat))
