@@ -123,7 +123,7 @@ GAME_MODULE = GameModule(
                 "its story animations, and the SkeletalMorph emotion/pose/lipsync "
                 "library",
                 ("character", "draw_tab")),
-        GameTab("weapon", "Weapon", "Weapon mounting, attack effect resources and static emission",
+        GameTab("weapon", "Weapon", "Standalone weapon resources, mounting, attack effect resources and static emission",
                 ("weapon", "draw_tab"), requires=host_port.Rig, requires_index=False),
     ),
     # A UI or cutscene clip carries its face in the BONE tracks, so importing one onto

@@ -1,4 +1,26 @@
-# Explicit equipment selection
+# Weapon resources and optional equipment assembly
+
+## Standalone imports
+
+Weapon opens on **武器资源** by default. Like Character, its compact pane selector
+is followed by category, shared search/rules, the resource list, shared import
+options and Load/Reveal. Open an index, scan, select a row and Load; no character,
+equipment slot or mount is required. Materials and referenced textures use the
+ordinary import pipeline, including the selected Game Shaders setting. Scanning
+does not import anything or alter existing scene objects.
+
+The matching private reader publishes `endfield.weapon.resources`: exact top-level
+weapon prefab routes, including `misc` props/skill resources and unknown families.
+The latter are standalone source resources, not a claim of equipment eligibility.
+Ambiguous CAB routes stay visible with an empty load payload. Chinese display
+names preserve the technical name; full source paths and status remain searchable.
+Switching installs/reloading maps invalidates the displayed catalog for loading
+until it is scanned again. A failed scan also invalidates the prior catalog.
+
+Existing saved pane selections remain unchanged. Mount, effects and static glow
+remain separate panes; standalone import never steals the selected character.
+
+## Explicit equipment selection
 
 The Weapon / Mount pane now separates conventional equipment from fixed character
 resources. Use the matching private backend built with this feature.
@@ -69,6 +91,15 @@ existing socket intentionally preserves its current transforms and animation.
 
 ## Verification
 
+- `tools/test_weapon_catalog.py`: standalone display projection, ambiguous load
+  payloads, map/install invalidation and shared-command/host-neutral contracts.
+- `tools/verify_weapon_catalog_blender.py`: isolated real-index scan, category and
+  search filtering, shared Load command, actual model/material/packed-texture
+  imports, filled-list RNA rendering and preservation of a character target.
+  Additional synthetic guards cover ambiguous rows and reader failures.
+- `tools/verify_weapon_catalog_reopen_blender.py`: a separate no-addon/no-autoexec
+  reopen verifies source pixels, mesh/material links and packed images. Neither
+  this nor the source-import test establishes final visual/game-render parity.
 - `tools/test_weapon_equipment_contract.py`: host-free synthetic contract checks.
 - `tools/test_import_completion.py`: import completion, exception isolation and
   last-character selection without game/backend dependencies.

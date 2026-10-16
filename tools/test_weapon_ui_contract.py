@@ -29,7 +29,9 @@ class WeaponUIContract(unittest.TestCase):
         module = ast.parse((ROOT / 'Game/Endfield/weapon.py').read_text(encoding='utf-8'))
         panes = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign)
                      and any(isinstance(t, ast.Name) and t.id == 'PANES' for t in node.targets))
-        self.assertEqual([one[0] for one in panes], ['mount', 'effects', 'glow'])
+        self.assertEqual([one[0] for one in panes], ['catalog', 'mount', 'effects', 'glow'])
+        self.assertEqual({one[0]: one[3] for one in panes},
+                         dict(catalog=3, mount=0, effects=1, glow=2))
         self.assertFalse(any(isinstance(n, (ast.Import, ast.ImportFrom)) and
                              ('bpy' in ast.unparse(n)) for n in module.body))
 

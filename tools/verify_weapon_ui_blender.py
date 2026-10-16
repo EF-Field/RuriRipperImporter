@@ -38,7 +38,7 @@ def main():
     from RuriRipperImporter.Kernel.app import browser, layout, loading, command
     from RuriRipperImporter.Kernel import host as host_port, statement
     from RuriRipperImporter.Host.Blender import render, rig_identity
-    from RuriRipperImporter.Game.Endfield import weapon, datasets, roster
+    from RuriRipperImporter.Game.Endfield import weapon, weapon_catalog, datasets, roster
     from RuriRipperImporter.Game.Endfield.Blender import weapons, weapon_effects, weapon_glow
     from RuriRipperImporter.Host.Blender import material_builder
     from RuriRipperImporter.Kernel.bridge import bootstrap
@@ -217,7 +217,16 @@ def main():
     state.active_tab = tabs[2].key
     assert not state.loaded
     nav = getattr(bpy.context.scene, weapon.STATE)
-    expected = {'mount': 'ruri.endfield_read_weapons', 'effects': 'ruri.endfield_read_effects',
+    assert nav.pane == 'catalog'
+    for stored, pane in ((0, 'mount'), (1, 'effects'), (2, 'glow')):
+        nav['pane'] = stored
+        assert nav.pane == pane
+    nav.property_unset('pane')
+    assert nav.pane == 'catalog'
+    report['legacy_pane_numbers_retained'] = True
+    assert browser._active_filter_spec_key(bpy.context) == weapon_catalog.SPEC_KEY
+    expected = {'catalog': 'ruri.weapon_resources_refresh',
+                'mount': 'ruri.endfield_read_weapons', 'effects': 'ruri.endfield_read_effects',
                 'glow': 'ruri.endfield_weapon_glow_scan'}
     for pane, operator in expected.items():
         nav.pane = pane
@@ -253,6 +262,7 @@ def main():
     addon.unregister()
     assert not loading._import_listeners
     assert not hasattr(bpy.types.Scene, weapon.STATE)
+    assert not hasattr(bpy.types.Scene, weapon_catalog.STATE)
     assert not weapon.SECTIONS.keys()
     register_without_reader()
     from RuriRipperImporter.Game.Endfield import weapon as reloaded_weapon
