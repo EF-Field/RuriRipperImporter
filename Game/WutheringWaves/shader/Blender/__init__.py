@@ -1,8 +1,9 @@
 """Ruri Blender 材质栈运行时(生成物,勿手改)。
 
 本平台产物同批同 stamp(906e48354c34538b):每个生成栈一个 <栈名>.blend(模板节点组库,codegen 期
-headless 物化),外加全部栈清单 RuriManifest.json(导入时载入为 MANIFESTS,每条自带它的
-blend 文件名与组名单),外加**全平台唯一的**本文件(平台 ruri_wutheringwaves 的包入口)—— 运行时。
+headless 物化),外加包清单 RuriManifest.json(管线映射 pipeline + 全部栈清单 stacks;导入时把
+stacks 载入为 MANIFESTS,每条自带它的 blend 文件名与组名单),外加**全平台唯一的**本文件
+(平台 ruri_wutheringwaves 的包入口)—— 运行时。
 
 ⛔ 插件数据零缓存,严禁写进 .blend。从产物取来的模板组、模板材质、参数表、中性图、合成树与它的图、顶点腿的树、
 兜底灯 —— 本运行时造的与带进来的每一个数据块都经宿主的 plugin_data() 出生(运行时数据,存盘一个字节都不写)。
@@ -10,7 +11,7 @@ blend 文件名与组名单),外加**全平台唯一的**本文件(平台 ruri_w
 开文件与本模块注册时宿主跑 load pass:先清掉插件数据(旧文件里上一版存下的、上一次注册留下的),再按记录把
 每张材质现编一遍(compile_all),其余派生态由各派生阶段现建。
 
-清单是同目录的 json,导入时用普通文件读取载入:插件 register() 跑在 Blender 的**受限上下文**里
+包清单是同目录的 json,导入时用普通文件读取载入:插件 register() 跑在 Blender 的**受限上下文**里
 (bpy.data 此刻是 _RestrictData),读不了 .blend 里的任何东西,但读磁盘上的 json 不受限,
 宿主要在注册期拿 INTERFACE 建 PropertyGroup 照样拿得到。这一个 .py 也是不可省的下限:
 .blend 没法把自己注册进宿主。
@@ -31,7 +32,7 @@ if bpy.app.version < (5, 3, 0):
                        'Light Evaluation / Shadow Raycast / Light Accumulation);当前 %d.%d 没有这些节点。'
                        % bpy.app.version[:2])
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'RuriManifest.json'), encoding='utf-8') as manifest_stream:
-    MANIFESTS = json.load(manifest_stream)
+    MANIFESTS = json.load(manifest_stream)['stacks']
 
 OWN_SAMPLER = 'TEXTURE'
 OVERLAY_OUTPUT_PREFIX = '__overlay__'
