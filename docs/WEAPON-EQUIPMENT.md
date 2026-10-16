@@ -91,6 +91,44 @@ existing socket intentionally preserves its current transforms and animation.
 
 ## Verification
 
+### Native material effects (Blender)
+
+Weapon → 材质光效 → choose the weapon root (or use 使用选中武器) →
+识别已有武器材质 → 准备所选独立控制 → expand its native parameters.
+Changing the target invalidates old rows. A target unlinked from the current
+scene is rejected, with an explicit selection button rather than a silent
+fallback to a different object or the whole character.
+The target covers its mesh descendants, not unrelated siblings. For an import
+with multiple separate roots, explicitly group those roots under a common empty
+and choose that empty to include the whole assembly.
+
+Discovery uses the owning generated stack's live interface and bound source
+images, not weapon/material name patterns. Native Emission and Parallax are
+separate controls even on one material. Prepare makes one object-local material
+copy per source while retaining its original switches, color/HDR, intensity,
+UV/sampler and shader math. Parameters use the shared material panel's guarded
+readback and original stack writer. No extra emission branch is added.
+Repeated prepare retains edits; 恢复武器原材质 restores the prior slot links.
+
+Existing effect-shader materials are listed separately, including ones without
+MainTex; depth-only/refraction shaders are not asserted to be emissive. They are
+opt-in for a local copy and retain their full native interface. Unclassified
+materials (including hidden geometry using a default material) are 待确认,
+never automatically brightened or assigned a guessed effect material. Visibility
+icons are direct Blender object controls, separate from material restoration.
+Scanning/preparing never changes object visibility.
+
+手动叠加 remains an explicit artist-editing tool, not a reconstruction of game
+effects. Native materials no longer also receive automatic grayscale overlays.
+To add an overlay after preparing a native-only copy, restore it first, add the
+manual region and prepare again. Existing saved overlays remain supported.
+No potential-level logic, animation events or runtime material replacement is
+implemented. Native graph control tests are not game-render/visual acceptance.
+
+- `tools/verify_weapon_channels_blender.py`: real generated-graph discovery,
+  source-preserving shared-mesh copies, native RNA writes, HDR, idempotence,
+  invalid scene targets, unknown hidden materials and saved-record reopening.
+
 - `tools/test_weapon_catalog.py`: standalone display projection, ambiguous load
   payloads, map/install invalidation and shared-command/host-neutral contracts.
 - `tools/verify_weapon_catalog_blender.py`: isolated real-index scan, category and

@@ -13,7 +13,7 @@ PANES = (
     ('catalog', '武器资源', '独立扫描和导入武器，自动加载材质与贴图', 3),
     ('mount', '武器挂载', '角色武器、挂点与武器动作', 0),
     ('effects', '攻击特效 · 首阶段', '攻击特效资源与静态模板预览', 1),
-    ('glow', '静态发光', '光弦与武器纹路的独立静态发光', 2),
+    ('glow', '材质光效', '原生自发光、视差流光与手动叠加；不含满潜逻辑', 2),
 )
 SCHEMA = app_state.Schema('EndfieldWeaponTab', 'Weapon tab navigation only.', (
     app_state.Field('pane', app_state.ENUM, 'catalog', 'Weapon', items=PANES, remembered=True),

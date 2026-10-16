@@ -1,8 +1,8 @@
-"""Static Blender emission on already imported weapon materials only.
+"""Native controls and opt-in artist emission on imported weapon materials.
 
 No reader, game paths, source decoding or reverse-engineering tools are used.
-Shared source materials remain intact. An additive, texture-masked emission
-branch is rebuilt after the normal host compiles a managed material's source.
+Shared source materials remain intact. Native controls use the original stack;
+only explicit artist overlays add a texture-masked emission branch.
 """
 import json
 
@@ -10,7 +10,7 @@ import bpy
 from bpy.props import BoolProperty, CollectionProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
 
 from ....Host.Blender import material_builder
-from . import weapons
+from . import weapons, weapon_channels
 
 STATE = 'ruri_weapon_glow_panel'
 SETTINGS = 'ruri_weapon_glow'
@@ -21,6 +21,7 @@ LINK = 'ruri_glow_surface_source'
 ERROR = 'ruri_glow_error'
 BINDINGS = 'ruri_glow_binding_links'
 RECORD = 'ruri_glow_settings_record'
+NATIVE = 'ruri_glow_native_control'
 _HYDRATING = set()
 # Artist reference preset, not a recovered game uniform. Scene-linear RGBA.
 NORMAL_COLOR = (.16, .055, 1.0, 1.0)
@@ -98,15 +99,35 @@ def owned_materials(target):
 
 def scan(context):
     state = getattr(context.scene, STATE)
+    # Invalidate before resolving: a removed scene target must not leave the
+    # previous weapon's actionable rows on screen after an unsuccessful scan.
+    state.regions.clear()
+    state.channels.clear()
+    state.scanned_target = None
     target = target_of(context)
     materials = list(dict.fromkeys(slot.material.get(BASE, slot.material)
                     for obj in meshes_of(target) for slot in obj.material_slots if slot.material))
-    state.regions.clear()
     # Old saved panel pointers are migration input only, never a second catalog.
     state.string_material = state.pattern_material = None
     state.target = target
+    state.scanned_target = target
     owned = {mat[BASE]: mat for mat in owned_materials(target)}
     for mat in materials:
+        live = owned.get(mat, mat)
+        channels = weapon_channels.discover(live)
+        for channel in channels:
+            item = state.channels.add()
+            item.material, item.kind, item.role = mat, channel['kind'], channel['label']
+            item.selected = channel['kind'] != 'VFX'
+            item.detail = ('扫描时原生开关已开启' if channel['enabled'] else '扫描时原生开关关闭') if channel['gate'] else '保留原 Shader；展开查看原生参数'
+        if not channels:
+            item = state.channels.add()
+            item.material, item.kind, item.role = mat, 'UNKNOWN', '待确认材质'
+            item.detail = '未确认有效原生通道；不会自动点亮或替换材质'
+        # Native materials use their source graph, never an automatic grayscale
+        # overlay. Existing artist-authored overlays remain editable on rescan.
+        if channels and (mat not in owned or owned[mat].get(NATIVE)):
+            continue
         emission = image_of(mat, '_EmissionMap')
         main = image_of(mat, '_MainTex')
         if not emission and not main and mat not in owned:
@@ -122,13 +143,17 @@ def scan(context):
             settings = getattr(owned[mat], SETTINGS)
             item.role, item.mask = settings.role, settings.mask
             item.mask_secondary = settings.mask_secondary
-    state.note = ('找到 %d 个候选区域；普通贴图候选需确认，新区域默认关闭' % len(state.regions)
-                  if state.regions else '未发现发光贴图候选；可以保持原材质，或手动添加区域')
+    state.note = '原生通道 %d 项；手动叠加候选 %d 项。扫描不改变源材质或显隐' % (len(state.channels), len(state.regions))
 
 
 def add_region(context):
     state = getattr(context.scene, STATE)
     target = target_of(context)
+    if state.scanned_target != target:
+        state.regions.clear()
+        state.channels.clear()
+        state.target = target
+        state.scanned_target = target
     material = state.material
     originals = {slot.material.get(BASE, slot.material) for obj in meshes_of(target)
                  for slot in obj.material_slots if slot.material}
@@ -249,6 +274,10 @@ def changed(self, context):
 def apply(context):
     state = getattr(context.scene, STATE)
     target = target_of(context)
+    if state.scanned_target is not None and state.scanned_target != target:
+        raise ValueError('武器目标已变化，请重新扫描')
+    native = list(dict.fromkeys(item.material for item in state.channels
+                               if item.selected and item.kind != 'UNKNOWN'))
     regions = [(item.material, item.role, item.mask, item.mask_secondary)
                for item in state.regions if item.selected]
     if not state.regions:
@@ -256,10 +285,11 @@ def apply(context):
         regions = [(mat, role, image_of(mat, key), None)
                    for mat, role, key in ((state.string_material, '光弦', '_MainTex'),
                                           (state.pattern_material, '纹路', '_EmissionMap')) if mat]
-    if not regions:
+    if not regions and not native:
         state.note = '未选择发光区域，原材质保持不变'
         return
-    sources = [entry[0] for entry in regions]
+    overlay_sources = [entry[0] for entry in regions]
+    sources = list(dict.fromkeys(overlay_sources + native))
     if any(mat is None or mat.library for mat in sources):
         raise ValueError('请选择有效的本地材质')
     meshes = meshes_of(target)
@@ -270,21 +300,28 @@ def apply(context):
     if any(mat.get(BASE, mat) not in originals for mat in sources):
         raise ValueError('所选材质不属于此武器')
     resolved = [mat.get(BASE, mat) for mat in sources]
-    if len(set(resolved)) != len(resolved):
+    if len(set(overlay_sources)) != len(overlay_sources):
         raise ValueError('同一来源材质只添加一个区域；不同网格可分别选择目标')
+    if any(mat.get(NATIVE) and mat.get(BASE) in overlay_sources for mat in owned_materials(target)):
+        raise ValueError('此材质已有原生控制，请先恢复原材质，再准备手动叠加')
     made, bindings = [], []
     try:
-        for source, (_, role, mask, secondary) in zip(resolved, regions):
+        overlays = {mat.get(BASE, mat): (role, mask, secondary) for mat, role, mask, secondary in regions}
+        for source in resolved:
+            role, mask, secondary = overlays.get(source, ('原生通道', None, None))
             existing = [mat for mat in owned_materials(target) if mat.get(BASE) == source]
             if len(existing) > 1:
                 raise ValueError('同一来源存在多份受管材质，请先整理')
             if existing:
+                # Never silently replace an existing artist overlay with native
+                # defaults or reset a user's native adjustments on repeated apply.
                 rebuild(existing[0])
                 continue
             material = source.copy()
             made.append(material)
             material.name = source.name + ' · 静态' + role
             material[BASE], material[OWNER] = source, target
+            material[NATIVE] = source not in overlays
             material_builder.content(material)
             settings = getattr(material, SETTINGS)
             settings.role = role
@@ -307,7 +344,7 @@ def apply(context):
                     slot.link = 'OBJECT'
                     slot.material = material
         state.target = target
-        state.note = '已准备独立发光区域；新区域默认关闭，已有调整保留'
+        state.note = '已准备对象局部材质副本；原生参数与源一致，手动叠加默认关闭'
     except Exception:
         for obj, index, link, source in reversed(bindings):
             slot = obj.material_slots[index]
@@ -398,8 +435,28 @@ class RURI_PG_glow_region(bpy.types.PropertyGroup):
     mask_secondary: PointerProperty(name='辅助遮罩（可选）', type=bpy.types.Image)
 
 
+class RURI_PG_weapon_channel(bpy.types.PropertyGroup):
+    material: PointerProperty(type=bpy.types.Material)
+    kind: StringProperty()
+    role: StringProperty()
+    detail: StringProperty()
+    selected: BoolProperty(name='准备独立控制', default=False)
+    expanded: BoolProperty(name='展开参数', default=False)
+
+
+def target_changed(self, context):
+    if self.target != self.scanned_target:
+        self.regions.clear()
+        self.channels.clear()
+        self.string_material = self.pattern_material = None
+        self.scanned_target = None
+        self.note = '目标已变化，请识别当前武器材质'
+
+
 class RURI_PG_weapon_glow_panel(bpy.types.PropertyGroup):
-    target: PointerProperty(type=bpy.types.Object)
+    target: PointerProperty(type=bpy.types.Object, update=target_changed)
+    scanned_target: PointerProperty(type=bpy.types.Object)
+    channels: CollectionProperty(type=RURI_PG_weapon_channel)
     regions: CollectionProperty(type=RURI_PG_glow_region)
     material: PointerProperty(type=bpy.types.Material)
     string_material: PointerProperty(type=bpy.types.Material)
@@ -431,9 +488,33 @@ class RURI_OT_weapon_glow_scan(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class RURI_OT_weapon_glow_target(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_weapon_glow_target'
+    bl_label = '使用选中武器'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        target = context.object
+        if target is None:
+            self.report({'WARNING'}, '请先选中武器网格或根对象')
+            return {'CANCELLED'}
+        while target.parent and weapons.OWNER not in target:
+            target = target.parent
+        state = getattr(context.scene, STATE)
+        previous = state.target
+        state.target = target
+        try:
+            scan(context)
+        except Exception as exc:
+            state.target = previous
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class RURI_OT_weapon_glow_apply(bpy.types.Operator):
     bl_idname = 'ruri.endfield_weapon_glow_apply'
-    bl_label = '应用所选发光区域'
+    bl_label = '准备所选独立控制'
     bl_options = {'REGISTER', 'UNDO'}
     def execute(self, context):
         try:
@@ -473,7 +554,37 @@ class RURI_OT_weapon_glow_normal(bpy.types.Operator):
 def draw_glow(layout, context):
     state = getattr(context.scene, STATE)
     layout.prop(state, 'target', text='武器目标')
+    layout.operator(RURI_OT_weapon_glow_target.bl_idname, icon='EYEDROPPER')
     layout.operator(RURI_OT_weapon_glow_scan.bl_idname)
+    valid = bool(state.target and state.target.name in context.scene.objects)
+    if state.target and not valid:
+        layout.label(text='目标已离开当前场景，请重新选择武器', icon='ERROR')
+        return
+    if valid:
+        owned = {mat[BASE]: mat for mat in owned_materials(state.target)}
+        for channel in state.channels:
+            box = layout.box()
+            if channel.material is None:
+                box.label(text='材质已移除，请重新扫描', icon='ERROR')
+                continue
+            box.label(text=channel.material.name + ' · ' + channel.role)
+            box.label(text=channel.detail, icon='INFO')
+            if channel.kind != 'UNKNOWN':
+                box.prop(channel, 'selected')
+                live = owned.get(channel.material)
+                if live:
+                    box.prop(channel, 'expanded')
+                    if channel.expanded:
+                        weapon_channels.draw(box, live, channel.kind)
+            users = [obj for obj in meshes_of(state.target) if any(
+                slot.material and slot.material.get(BASE, slot.material) == channel.material for slot in obj.material_slots)]
+            for obj in users:
+                if obj.hide_viewport or obj.hide_render or channel.kind in ('VFX', 'UNKNOWN'):
+                    row = box.row(align=True)
+                    row.label(text=obj.name)
+                    row.prop(obj, 'hide_viewport', text='', icon='HIDE_ON')
+                    row.prop(obj, 'hide_render', text='', icon='RESTRICT_RENDER_ON')
+        layout.label(text='手动叠加发光（独立编辑，不代表游戏原效果）')
     for item in state.regions:
         box = layout.box()
         box.prop(item, 'selected', text=item.material.name if item.material else '材质已移除')
@@ -487,6 +598,8 @@ def draw_glow(layout, context):
         layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
     if state.target and state.target.name in context.scene.objects:
         for material in owned_materials(state.target):
+            if material.get(NATIVE):
+                continue
             settings = getattr(material, SETTINGS)
             box = layout.box()
             box.label(text=material.name + ' · ' + settings.role)
@@ -500,14 +613,15 @@ def draw_glow(layout, context):
     layout.operator(RURI_OT_weapon_glow_restore.bl_idname)
     layout.label(text='仅 Blender 静态材质；不涉及游戏动态逻辑', icon='INFO')
     layout.label(text='自发光≠光晕；合成器辉光保持原设置')
-    layout.label(text='贴图候选不代表游戏显隐；无需光弦与纹路配对')
+    layout.label(text='原生控制保留颜色／HDR／透明；待确认项不自动点亮')
     if state.note:
         layout.label(text=state.note[:90])
 
 
-CLASSES = (RURI_PG_weapon_glow, RURI_PG_glow_region, RURI_PG_weapon_glow_panel,
+CLASSES = (RURI_PG_weapon_glow, RURI_PG_glow_region, RURI_PG_weapon_channel, RURI_PG_weapon_glow_panel,
            RURI_OT_glow_add_region, RURI_OT_weapon_glow_scan,
-           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal)
+           RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal,
+           RURI_OT_weapon_glow_target)
 
 
 def register():

@@ -98,6 +98,15 @@ def main():
         report = dict(reopen=True, rebuilt=True, restored=True, blender=bpy.app.version_string)
     else:
         assert bpy.ops.ruri.endfield_weapon_glow_scan() == {'FINISHED'}
+        # This regression intentionally exercises artist-authored overlays.
+        # Native discovery no longer auto-adds them to native shader materials.
+        for channel in state.channels:
+            channel.selected = False
+        for source in dict.fromkeys(slot.material for obj in meshes for slot in obj.material_slots if slot.material):
+            if (glow.image_of(source, '_EmissionMap') or glow.image_of(source, '_MainTex')) and not any(
+                    item.material == source for item in state.regions):
+                state.material = source
+                glow.add_region(bpy.context)
         # Explicitly classify this bow fixture, not a rule for arbitrary VFX.
         for item in state.regions:
             item.selected = True
