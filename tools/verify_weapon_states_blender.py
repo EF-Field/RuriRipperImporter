@@ -48,8 +48,10 @@ def plan(seed, appearance, deco, deco_key=''):
 nodes = [NS(index=0, parent=-1, name='Mesh_all', path='', mesh=''),
          NS(index=1, parent=0, name='Source_vfx_fixture', path='vfx', mesh='vfx'),
          NS(index=2, parent=0, name='Source_body_fixture', path='body', mesh='body')]
+seen_options=[]
 @contextmanager
 def read(seeds, options):
+    seen_options.append(dict(options))
     yield NS(nodes=nodes, materials={'exact:mat':NS()}, seeds=seeds)
 
 def indexed(context, stated, options):
@@ -116,7 +118,10 @@ with patch.object(states, 'plan_for', plan), patch.object(states.loading, 'read'
      patch.object(states.weapons, 'attachment_basis', return_value=Matrix.Identity(4)):
     for appearance in ('base', 'refined'):
         for deco in ('none', 'gemDeco', 'gemMaxDeco'):
-            root = states.import_state(bpy.context, 'fixture', appearance, deco)
+            root = states.import_state(bpy.context, 'fixture', appearance, deco,
+                dict(detail_level=1,import_shadow_proxies=True,import_empties=False,
+                     import_inactive=False,game_shaders=False,import_animations=True,
+                     retarget_face=True,import_secondary_motion=True))
             roots.append(root)
             targets = [o for o in root.children_recursive if '_vfx_' in o.get(states.SOURCE_NAME, '')]
             assert len(targets) == 1
@@ -132,6 +137,9 @@ with patch.object(states, 'plan_for', plan), patch.object(states.loading, 'read'
             assert bpy.context.object == original
             assert bpy.context.scene.frame_current == 17 and abs(bpy.context.scene.frame_subframe-.25) < 1e-6
     assert prior == (original.data, original.material_slots[0].material, original.hide_viewport, original.hide_render)
+    assert seen_options and all(o['detail_level']==1 and o['import_shadow_proxies'] for o in seen_options)
+    assert all(all(o[k] for k in ('import_empties','import_inactive','game_shaders')) for o in seen_options)
+    assert all(not any(o[k] for k in ('import_animations','retarget_face','import_secondary_motion')) for o in seen_options)
     before = states._snapshot()
     with patch.object(Builder, 'build', side_effect=ValueError('fixture failure')):
         try: states.import_state(bpy.context, 'fixture', 'base', 'gemDeco')
@@ -158,8 +166,10 @@ with patch.object(states, 'plan_for', plan), patch.object(states.loading, 'read'
     assert a.hide_render and not a.material_slots
 
 path = args.output / 'six-states.blend'
+getattr(bpy.context.scene,weapon.STATE)['pane']=3
 bpy.ops.wm.save_as_mainfile(filepath=str(path), check_existing=False)
 bpy.ops.wm.open_mainfile(filepath=str(path), load_ui=False)
+assert getattr(bpy.context.scene,weapon.STATE).pane=='states'
 saved = [o for o in bpy.data.objects if states.MANIFEST in o]
 assert len(saved) == 6
 for root in saved:
@@ -170,5 +180,6 @@ assert not [o for o in bpy.data.objects if states.MANIFEST in o]
 report = dict(status='WEAPON_STATES_FIXTURES_PASS', combinations=6, rollback=True,
               source_preserved=True, renamed_source_targets=True, shared_mesh_isolation=True,
               reopen=True, removal=True, visual_acceptance=False)
+report.update(options_forwarded=True,fixed_options_enforced=True,old_catalog_pane_migrated=True)
 (args.output/'fixture-report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
 print('WEAPON_STATES_FIXTURES_PASS',json.dumps(report),flush=True)

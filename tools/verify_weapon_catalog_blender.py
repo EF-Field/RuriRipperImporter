@@ -91,7 +91,7 @@ def main():
     state.current_tab, state.active_tab = config.key, 'Endfield:weapon'
     assert state.loaded
     nav = getattr(bpy.context.scene, weapon.STATE)
-    assert nav.pane == 'catalog'
+    assert nav.pane == 'states'
     assert catalog.REFRESH.poll(bpy.context)
     assert catalog._refresh(bpy.context, {}) is None
     assert catalog.current(bpy.context)

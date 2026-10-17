@@ -52,7 +52,11 @@ def draw_case(name,expected_list):
     target=RecordingLayout()
     assert not hasattr(target,'list')
     render.draw(layout.describe(weapon.draw_tab,bpy.context),target,bpy.context)
-    assert all(('prop',key) in target.calls for key in ('appearance','deco','deco_key','instance')),target.calls
+    assert all(('prop',key) in target.calls for key in ('appearance','deco','advanced','instance')),target.calls
+    hidden=('import_inactive','game_shaders','import_empties','import_animations','retarget_face','import_secondary_motion')
+    assert not any(('prop',key) in target.calls for key in hidden),target.calls
+    advanced=getattr(bpy.context.scene,weapon_states.STATE).advanced
+    assert all((('prop',key) in target.calls)==advanced for key in ('detail_level','import_shadow_proxies','deco_key'))
     assert ('operator','ruri.endfield_import_weapon_state',True) in target.calls,target.calls
     assert (('list','weapon_resources') in target.calls)==expected_list,target.calls
     snapshots.append(dict(case=name,resources=catalog.BOUND.count,calls=target.calls))
@@ -69,6 +73,13 @@ panel.search='';catalog.rebuild(panel)
 assert catalog.BOUND.count==total
 assert catalog._refresh(bpy.context,{}) is None
 draw_case('refreshed',True)
+getattr(bpy.context.scene,weapon_states.STATE).advanced=True
+draw_case('advanced',True)
+nav=getattr(bpy.context.scene,weapon.STATE)
+assert [p[0] for p in weapon.PANES]==['states','mount','effects','glow']
+nav['pane']=3
+weapon_states.migrate_navigation()
+assert nav.pane=='states'
 assert set(bpy.data.objects)==before
 report=dict(status='WEAPON_STATE_BROWSER_PASS',resources=total,cases=snapshots,objects_preserved=True,scene_saved=False,visual_acceptance=False)
 (args.output/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

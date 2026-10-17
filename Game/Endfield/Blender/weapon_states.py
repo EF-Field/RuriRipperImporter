@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from uuid import uuid4
 
 import bpy
-from bpy.props import EnumProperty, PointerProperty, StringProperty
+from bpy.app.handlers import persistent
+from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
 from mathutils import Matrix, Vector
 
 from ....Host.Blender import material_builder, materialise, material_panel, render, rig_identity
@@ -156,7 +157,8 @@ def import_state(context, seed, appearance='base', deco='none', options=None, *,
     # Resolve every exact resource first. Unsupported branches leave the scene alone.
     plan = plan_for(seed, appearance, deco, deco_key)
     values = dict(options or {}, source_game='Endfield', import_empties=True,
-                  import_inactive=True, import_animations=False, game_shaders=True)
+                  import_inactive=True, import_animations=False, game_shaders=True,
+                  retarget_face=False, import_secondary_motion=False)
     before = _snapshot()
     selected, active = list(context.selected_objects), context.view_layer.objects.active
     frame, subframe = context.scene.frame_current, context.scene.frame_subframe
@@ -318,6 +320,7 @@ class RURI_PG_weapon_states(bpy.types.PropertyGroup):
     deco_key: StringProperty(name='配置键覆盖', description='通常留空；仅在明确需要独立模板配置时填写')
     instance: PointerProperty(type=bpy.types.Object)
     note: StringProperty()
+    advanced: BoolProperty(name='高级导入设置', default=False)
 
 
 class RURI_OT_import_weapon_state(bpy.types.Operator):
@@ -365,15 +368,22 @@ def draw(layout, context):
     # layout (including its list); bridge it through the host renderer just like
     # the ordinary Character/Weapon resource panes do.
     description = app_layout.describe(
-        lambda described, ctx: weapon_catalog.draw(described, ctx, verbs=False), context)
+        lambda described, ctx: weapon_catalog.draw(described, ctx, verbs=False, import_options=False), context)
     render.draw(description, layout, context)
     state = getattr(context.scene, STATE)
     box = layout.box()
     box.prop(state, 'appearance')
     box.prop(state, 'deco')
-    box.prop(state, 'deco_key')
+    box.prop(state, 'advanced', icon='TRIA_DOWN' if state.advanced else 'TRIA_RIGHT', emboss=False)
+    if state.advanced:
+        advanced = box.box()
+        shared = browser.state_of(context)
+        advanced.prop(shared, 'detail_level', text='模型精度（LOD）')
+        advanced.prop(shared, 'import_shadow_proxies', text='保留阴影代理')
+        advanced.prop(state, 'deco_key')
+        advanced.label(text='LOD 0 为最高精度；-1 为全部等级', icon='INFO')
     box.operator(RURI_OT_import_weapon_state.bl_idname, icon='IMPORT')
-    box.label(text='手动资源状态；原生 Shader / 时间驱动；粒子模拟另项', icon='INFO')
+    box.label(text='原生材质与贴图自动加载；光效随时间轴变化', icon='INFO')
     if state.note:
         box.label(text=state.note, icon='INFO')
     box.prop(state, 'instance', text='状态实例')
@@ -383,6 +393,16 @@ def draw(layout, context):
 CLASSES = (RURI_PG_weapon_states, RURI_OT_import_weapon_state, RURI_OT_remove_weapon_state)
 
 
+@persistent
+def migrate_navigation(_unused=None):
+    """Old saved catalog pane (numeric 3) now opens the unified state entry."""
+    from .. import weapon
+    for scene in bpy.data.scenes:
+        navigation = getattr(scene, weapon.STATE, None)
+        if navigation is not None and navigation.get('pane') == 3:
+            navigation.pane = 'states'
+
+
 def register():
     from .. import weapon
     for cls in CLASSES:
@@ -390,11 +410,16 @@ def register():
     setattr(bpy.types.Scene, STATE, PointerProperty(type=RURI_PG_weapon_states))
     material_builder.MATERIAL_FINALIZERS.add(finalize)
     weapon.register_section('states', draw)
+    if migrate_navigation not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(migrate_navigation)
+    migrate_navigation()
 
 
 def unregister():
     from .. import weapon
     weapon.drop_section('states')
+    if migrate_navigation in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(migrate_navigation)
     material_builder.MATERIAL_FINALIZERS.remove(finalize)
     delattr(bpy.types.Scene, STATE)
     for cls in reversed(CLASSES):

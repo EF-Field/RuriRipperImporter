@@ -98,7 +98,7 @@ _COLUMNS = (
 )
 
 
-def draw(layout, context, verbs=True):
+def draw(layout, context, verbs=True, import_options=True):
     state = state_of(context)
     command.draw_progress(layout, state)
     if not current(context):
@@ -112,13 +112,16 @@ def draw(layout, context, verbs=True):
     app_view.draw_list(BOUND, layout, state, _COLUMNS, 'weapon_resources', rows=10)
     if state.status:
         layout.label(text=state.status, icon='INFO')
-    picked = BOUND.picked(state)
-    options = layout.column(align=True)
-    options.enabled = picked is not None and bool(picked.payload)
-    browser.draw_import_options(options, context)
-    if verbs:
-        cast_panel.draw_row_verbs(options, [picked.payload] if picked and picked.payload else [], STATE)
-    layout.label(text='材质与贴图自动加载；配饰／技能道具不代表可装备武器', icon='INFO')
+    if import_options or verbs:
+        picked = BOUND.picked(state)
+        options = layout.column(align=True)
+        options.enabled = picked is not None and bool(picked.payload)
+        if import_options:
+            browser.draw_import_options(options, context)
+        if verbs:
+            cast_panel.draw_row_verbs(options, [picked.payload] if picked and picked.payload else [], STATE)
+    if import_options:
+        layout.label(text='材质与贴图自动加载；配饰／技能道具不代表可装备武器', icon='INFO')
 
 
 def register():

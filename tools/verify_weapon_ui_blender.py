@@ -217,16 +217,15 @@ def main():
     state.active_tab = tabs[2].key
     assert not state.loaded
     nav = getattr(bpy.context.scene, weapon.STATE)
-    assert nav.pane == 'catalog'
+    assert nav.pane == 'states'
     for stored, pane in ((0, 'mount'), (1, 'effects'), (2, 'glow')):
         nav['pane'] = stored
         assert nav.pane == pane
     nav.property_unset('pane')
-    assert nav.pane == 'catalog'
+    assert nav.pane == 'states'
     report['legacy_pane_numbers_retained'] = True
     assert browser._active_filter_spec_key(bpy.context) == weapon_catalog.SPEC_KEY
-    expected = {'catalog': 'ruri.weapon_resources_refresh',
-                'states': 'ruri.endfield_import_weapon_state',
+    expected = {'states': 'ruri.endfield_import_weapon_state',
                 'mount': 'ruri.endfield_read_weapons', 'effects': 'ruri.endfield_read_effects',
                 'glow': 'ruri.endfield_weapon_glow_scan'}
     for pane, operator in expected.items():
@@ -236,11 +235,12 @@ def main():
         operators = [call[1] for call in target.calls if call[0] == 'operator']
         assert operator in operators, (pane, target.calls, state.active_tab,
                                       browser.active_config(state), browser._tab_bar(state))
-        allowed = {pane, 'catalog'} if pane == 'states' else {pane}
+        allowed = {pane}
         assert not any(other in operators for key, other in expected.items() if key not in allowed)
         if pane == 'states':
             assert 'ruri.weapon_resources_refresh' in operators
-            assert all(('prop', key) in target.calls for key in ('appearance', 'deco', 'deco_key'))
+            assert all(('prop', key) in target.calls for key in ('appearance', 'deco', 'advanced'))
+            assert not any(('prop', key) in target.calls for key in ('deco_key', 'import_inactive', 'game_shaders', 'import_empties', 'import_animations', 'retarget_face', 'import_secondary_motion'))
         assert ('label', 'Build or load a cabmap to browse/import.') not in target.calls
         report['panes'].append(dict(pane=pane, operators=operators))
     state.active_tab = tabs[1].key

@@ -101,6 +101,21 @@ Each click creates a separate assembly and retains existing objects, materials,
 selection and timeline position. Missing refined prefabs explicitly fall back to
 the base resource. Missing/ambiguous config or material routes fail with rollback.
 
+This is the unified/default Weapon import entry. The duplicate 武器资源 pane was
+removed; the shared catalog/filter implementation remains underneath it. Old
+saved catalog selections (numeric 3) migrate to 武器状态 (4), while mount/effect/
+glow selections (0/1/2) keep their meanings. 普通 + 关闭 replaces the former
+ordinary weapon import without adding decoration.
+
+Only meaningful variable controls remain under the collapsed 高级导入设置:
+模型精度（LOD）, 保留阴影代理 and the explicit config-key override. LOD and
+shadow proxies reach the existing Statement reader unchanged. The state assembler
+requires inactive carriers, source empties/mounts and native shaders, so these
+are always enabled, not shown as switches that would be ignored. Animation
+discovery is off here; use the separate weapon actions workflow. Face retargeting
+and secondary-motion imports are off and not shown in this weapon-state entry.
+Other games and the ordinary Character import options are unchanged.
+
 The matching private backend states exact decoration materials and effect prefab
 paths from its resource configuration. Only source mesh-renderer names containing
 `_vfx_` receive the configured whole material array, in order. This source predicate
