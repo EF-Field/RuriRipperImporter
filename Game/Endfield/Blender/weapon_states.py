@@ -104,7 +104,9 @@ def _rollback(before):
         for name in BLOCKS[1:]:
             blocks = getattr(bpy.data, name)
             for block in set(blocks) - before[name]:
-                if block.users == int(block.use_fake_user):
+                # Runtime shader caches belong to their provider, not this import.
+                # Removing them leaves the provider holding invalid RNA handles.
+                if not block.is_runtime_data and block.users == int(block.use_fake_user):
                     block.use_fake_user = False
                     blocks.remove(block)
 

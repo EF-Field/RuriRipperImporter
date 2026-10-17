@@ -60,6 +60,17 @@ def assert_clock(material):
             assert all(abs(a-b)<1e-4 for a,b in zip(socket.default_value,expected)),(list(socket.default_value),expected)
         scene.render.fps,scene.render.fps_base=old[:2]
         scene.frame_set(old[2],subframe=old[3])
+# Fail after native graphs have been constructed, then reuse their provider cache.
+# Provider-owned runtime data may stay cached; no imported scene content may stay.
+before=states._snapshot()
+broken=states.plan_for(row['seed'],'base','gemDeco')
+broken['effects']=[dict(name='fixture_invalid_offset',seed='fixture',mount_point='',offset=[float('nan'),0,0])]
+with patch.object(states,'plan_for',return_value=broken):
+    try:states.import_state(bpy.context,row['seed'],'base','gemDeco')
+    except ValueError as exc:assert '偏移' in str(exc)
+    else:raise AssertionError('invalid offset was accepted')
+for category,blocks in states._snapshot().items():
+    assert {b for b in blocks if not b.is_runtime_data}=={b for b in before[category] if not b.is_runtime_data},category
 for appearance in ('base','refined'):
     for deco in ('none','gemDeco','gemMaxDeco'):
         root=states.import_state(bpy.context,row['seed'],appearance,deco)
@@ -99,5 +110,6 @@ for root in roots:
         assert_clock(mat)
 report['status']='WEAPON_STATES_REAL_PASS';report['reopen']=True
 report['time_driver_numeric']=True;report['existing_material_preserved']=True
+report['native_graph_failure_rollback_and_retry']=True
 (args.output/'real-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
 print('WEAPON_STATES_REAL_PASS',flush=True)
