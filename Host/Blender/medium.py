@@ -66,7 +66,7 @@ import math
 import bpy
 from mathutils import Vector
 
-from . import material_builder
+from . import material_builder, plugin_data
 
 MEDIUM = "Ruri Level Medium"
 RECEIVERS = "Ruri Level Medium Receivers"
@@ -101,7 +101,7 @@ def apply(context, medium, sun):
         return ["medium {0} not stood up: {1}".format(medium["label"], unbuildable)]
     tint = _sun_share(sun, medium)
     domain = _domain(scene, medium, tint)
-    receivers = bpy.data.collections.new(RECEIVERS)
+    receivers = plugin_data.born(bpy.data.collections.new(RECEIVERS))
     receivers.objects.link(domain)
     copies = _lamp_copies(scene, medium, receivers, tint)
     _integration(scene, medium)
@@ -152,7 +152,7 @@ def _domain(scene, medium, tint):
         high = Vector([max(c[i] for c in corners) + reach for i in range(3)])
     else:
         low, high = Vector((-reach,) * 3), Vector((reach,) * 3)
-    domain = bpy.data.objects.new(MEDIUM, bpy.data.meshes.new(MEDIUM))
+    domain = plugin_data.born(bpy.data.objects.new(MEDIUM, plugin_data.born(bpy.data.meshes.new(MEDIUM))))
     modifier = domain.modifiers.new(MEDIUM, "NODES")
     modifier.node_group = _grid_tree(low, high, _material(medium, tint))
     domain.display_type = "BOUNDS"
@@ -167,7 +167,7 @@ def _grid_tree(low, high, material):
     tree = bpy.data.node_groups.get(MEDIUM)
     if tree is not None:
         bpy.data.node_groups.remove(tree)
-    tree = bpy.data.node_groups.new(MEDIUM, "GeometryNodeTree")
+    tree = plugin_data.born(bpy.data.node_groups.new(MEDIUM, "GeometryNodeTree"))
     tree.is_modifier = True
     tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     cube = tree.nodes.new("GeometryNodeVolumeCube")
@@ -186,7 +186,7 @@ def _grid_tree(low, high, material):
 
 
 def _material(medium, tint):
-    material = bpy.data.materials.get(MEDIUM) or bpy.data.materials.new(MEDIUM)
+    material = bpy.data.materials.get(MEDIUM) or plugin_data.born(bpy.data.materials.new(MEDIUM))
     material.use_nodes = True
     tree = material.node_tree
     tree.nodes.clear()
@@ -302,7 +302,7 @@ def _lamp_copies(scene, medium, receivers, tint):
         if obj.type != "LIGHT" or obj.data.type == "SUN" or TWIN_OF in obj or obj.data.volume_factor <= 0.0:
             continue
         share = obj.data.volume_factor
-        data = obj.data.copy()
+        data = plugin_data.born(obj.data.copy())
         data.name = obj.data.name + TWIN_SUFFIX
         data.volume_factor = share
         data.diffuse_factor = 0.0
@@ -314,7 +314,7 @@ def _lamp_copies(scene, medium, receivers, tint):
         brightest = max(max(untinted), 1.0)
         data.color = tuple(component / brightest for component in untinted)
         data.energy = obj.data.energy * brightest
-        copy = bpy.data.objects.new(obj.name + TWIN_SUFFIX, data)
+        copy = plugin_data.born(bpy.data.objects.new(obj.name + TWIN_SUFFIX, data))
         copy.matrix_world = obj.matrix_world.copy()
         copy[TWIN_OF] = obj.name
         copy.light_linking.receiver_collection = receivers
