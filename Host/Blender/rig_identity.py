@@ -57,6 +57,9 @@ AVATAR_PROP = "ruri_avatar"
 # while the character is still in the document.
 SOURCE_PROP = "ruri_source"
 
+# The skeleton family a rig declares when it is not the one its install states.
+SKELETON_PROP = "ruri_skeleton"
+
 # The SEED this rig was built from -- what a later question about "this character" (the face it
 # wears, above all) is asked WITH, because the rig standing in the document is the one handle a
 # later session holds and its name is whatever somebody made it. Handed back to the reader
@@ -369,6 +372,10 @@ def stamp_source(arm_obj, source):
 
 def source_of(arm_obj):
     return "" if arm_obj is None else str(arm_obj.get(SOURCE_PROP) or "")
+
+
+def skeleton_of(arm_obj):
+    return "" if arm_obj is None else str(arm_obj.get(SKELETON_PROP) or "") or source_of(arm_obj)
 
 
 def stamp_seed(arm_obj, seed):

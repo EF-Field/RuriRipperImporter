@@ -48,7 +48,7 @@ def _preferences():
 
 
 class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, host_port.Rig,
-                  host_port.Timeline, host_port.MorphTargets, host_port.NodeMaterials):
+                  host_port.Timeline, host_port.Retarget, host_port.MorphTargets, host_port.NodeMaterials):
     """What Blender can do, and where Blender keeps the one path that differs
     per machine. A skeleton, an animation surface and morph targets, a scene of
     separate objects with a compositor behind it, and node-graph materials; the
@@ -282,6 +282,18 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
     def play(self, context, rig, clips, options, activate=False):
         from . import animation_builder
         return animation_builder.play(context, rig, clips, options, activate)
+
+    def stand_in_rig(self, context, statement, skeleton_key, options):
+        from . import materialise
+        return materialise.build_rig(context, statement, skeleton_key, options)
+
+    def discard_rig(self, context, rig):
+        from . import retarget
+        retarget.discard(rig)
+
+    def retarget(self, context, source_rig, rig, source_name, performances, activate=False):
+        from . import retarget
+        return retarget.carry(context, source_rig, rig, source_name, performances, activate)
 
     def register_state(self, name, schema, handlers, extra=None):
         from . import rna

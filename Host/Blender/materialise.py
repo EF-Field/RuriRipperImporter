@@ -61,6 +61,22 @@ def materialise(context, statement, options, report=None):
     return _Materialisation(context, statement, dict(options or {}), report).run()
 
 
+def build_rig(context, statement, key, options=None):
+    """One stated skeleton as an armature, nothing that draws with it, the active object and the
+    selection left as they were."""
+    view_layer = context.view_layer
+    active = view_layer.objects.active
+    selected = list(context.selected_objects)
+    for chosen in selected:
+        chosen.select_set(False)
+    rig = _Materialisation(context, statement, dict(options or {}), None)._build_rig(key)
+    rig.select_set(False)
+    for chosen in selected:
+        chosen.select_set(True)
+    view_layer.objects.active = active
+    return rig
+
+
 def _trs(position, rotation, scale):
     """The local transform of one stated row, as a matrix. The rotation arrives
     as (x, y, z, w) and mathutils wants (w, x, y, z)."""
@@ -126,7 +142,7 @@ class _Materialisation:
     def run(self):
         roots = {root.node: root for root in self.statement.roots}
         for key in self._skeleton_keys():
-            self._build_rig(key)
+            derived_state.announce(self._build_rig(key))
         for node in self.statement.nodes:
             self._build_node(node, roots)
         self._stamp_light_frames()
@@ -237,7 +253,6 @@ class _Materialisation:
         self._group_humanoid(rig, skeleton, names)
         self.rigs[key] = (rig, {bone.path: names[bone.index] for bone in skeleton.bones})
         self.objects.append(rig)
-        derived_state.announce(rig)
         return rig
 
     def _bone_worlds(self, skeleton):
