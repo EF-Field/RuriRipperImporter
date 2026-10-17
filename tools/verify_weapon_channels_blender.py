@@ -5,28 +5,55 @@ material panel writer, never a second shader implementation.
 """
 import argparse
 import importlib.util
+import os
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 p = argparse.ArgumentParser()
 p.add_argument('--deps', type=Path, required=True)
+p.add_argument('--backend', type=Path)
 p.add_argument('--output', type=Path)
 p.add_argument('--reopen', type=Path)
 args = p.parse_args(sys.argv[sys.argv.index('--') + 1:])
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(args.deps))
+if args.backend:
+    os.environ['RURI_RIPPERHOOK_BIN'] = str(args.backend)
+fixture_path = args.output or args.reopen
+if fixture_path:
+    os.environ['RURI_RIPPER_WORKSPACE'] = str(fixture_path.parent / 'fixture-workspace')
 root = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('RuriRipperImporter', root / '__init__.py', submodule_search_locations=[str(root)])
 addon = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = addon
 spec.loader.exec_module(addon)
-addon.register()
+addon._DRIVER.reload_modules()
+from RuriRipperImporter.Kernel import bootstrap
+with patch.object(bootstrap, 'configure'):
+    addon._DRIVER.register()
 import bpy
+assert bpy.app.background and bpy.app.build_hash == b'73cfbda0a06d'
+bpy.context.preferences.filepaths.recent_files = 0
 from RuriRipperImporter.Game.Endfield.Blender import weapon_glow as glow
 from RuriRipperImporter.Game.Endfield.shader.Blender import STACKS
 from RuriRipperImporter.Host.Blender import material_builder, material_panel
+from RuriRipperImporter.Kernel.bridge import cabmap_state, pythonnet_bridge as pn
+
+# The synthetic owner graph uses the real private declaration dataset, not a
+# Python copy of its rules. Reopen without --backend proves cached offline edits.
+if args.backend:
+    pn.set_bin_dir(str(args.backend))
+    pn._ensure_runtime()
+    from Ruri.RipperHook.AssetRipperGameHook.Endfield import EndfieldMaterialChannels
+    EndfieldMaterialChannels.Register()
+    bridge = object.__new__(pn.RipperBridge)
+    bridge._bridge, bridge._map = pn._bridge_type, None
+    cabmap_state.BRIDGE = bridge
 
 if args.reopen:
+    assert args.backend is None, 'Offline reopen test must not load a reader'
+    assert cabmap_state.BRIDGE is None and pn._bridge_type is None
     bpy.ops.wm.open_mainfile(filepath=str(args.reopen), load_ui=False, use_scripts=False)
     material_builder.rebuild_plugin_data(purge=True)
     target = bpy.data.objects['QA weapon root']
@@ -46,6 +73,7 @@ if args.reopen:
         assert obj.hide_viewport and obj.hide_render
     glow.restore(bpy.context)
     assert not glow.owned_materials(target)
+    assert cabmap_state.BRIDGE is None and pn._bridge_type is None
     print('NATIVE_CHANNEL_REOPEN_PASS', flush=True)
     addon.unregister()
     raise SystemExit(0)

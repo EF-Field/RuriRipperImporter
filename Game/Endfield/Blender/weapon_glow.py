@@ -1,6 +1,6 @@
 """Native controls and opt-in artist emission on imported weapon materials.
 
-No reader, game paths, source decoding or reverse-engineering tools are used.
+The private reader declares channel policy from live host facts, without asset reload.
 Shared source materials remain intact. Native controls use the original stack;
 only explicit artist overlays add a texture-masked emission branch.
 """
@@ -116,29 +116,30 @@ def scan(context):
     owned = {mat[BASE]: mat for mat in owned_materials(target)}
     for mat in materials:
         live = owned.get(mat, mat)
-        channels = weapon_channels.discover(live)
+        channels = weapon_channels.discover(live, refresh=True)
         for channel in channels:
             item = state.channels.add()
             item.material, item.kind, item.role = mat, channel['kind'], channel['label']
-            item.selected = channel['kind'] != 'VFX'
+            item.selected = bool(channel['gate'])
             item.detail = ('扫描时原生开关已开启' if channel['enabled'] else '扫描时原生开关关闭') if channel['gate'] else '保留原 Shader；展开查看原生参数'
         if not channels:
             item = state.channels.add()
             item.material, item.kind, item.role = mat, 'UNKNOWN', '待确认材质'
-            item.detail = '未确认有效原生通道；不会自动点亮或替换材质'
+            status = live.get(weapon_channels.STATUS, '')
+            item.detail = status if status.startswith(('UNKNOWN:', 'CACHED:')) else '未确认有效原生通道；不会自动点亮或替换材质'
         # Native materials use their source graph, never an automatic grayscale
         # overlay. Existing artist-authored overlays remain editable on rescan.
         if channels and (mat not in owned or owned[mat].get(NATIVE)):
             continue
-        emission = image_of(mat, '_EmissionMap')
-        main = image_of(mat, '_MainTex')
-        if not emission and not main and mat not in owned:
+        candidate = next(iter(weapon_channels.describe(live)['manual']), None)
+        mask = image_of(mat, candidate['image']) if candidate else None
+        if not mask and mat not in owned:
             continue
         item = state.regions.add()
         item.material = mat
-        item.selected = bool(emission or mat in owned)
-        item.role = '纹路' if emission else '独立区域'
-        item.mask = emission or main
+        item.selected = bool((candidate and candidate['selected']) or mat in owned)
+        item.role = candidate['role'] if candidate else '独立区域'
+        item.mask = mask
         # A MainTex is only a candidate. Neither VFX nor a material name proves
         # an emissive role, an auxiliary-mask product, or a default visible state.
         if mat in owned:
@@ -170,7 +171,8 @@ def add_region(context):
     item = state.regions.add()
     item.material, item.selected = material, True
     item.role = '独立区域'
-    item.mask = image_of(material, '_EmissionMap')
+    candidate = next((row for row in weapon_channels.describe(material)['manual'] if row['selected']), None)
+    item.mask = image_of(material, candidate['image']) if candidate else None
     state.target = target
     state.note = '已添加独立区域；无遮罩表示整个材质，新区域默认关闭'
 
@@ -493,15 +495,16 @@ class RURI_PG_weapon_glow_panel(bpy.types.PropertyGroup):
 
 def toggle_native(context, material, kind):
     target = target_of(context)
-    if material is None or kind not in (*weapon_channels.PROFILES, 'VFX'):
+    if material is None:
         raise ValueError('请选择有效原生通道')
     source = material.get(BASE, material)
     live = next((mat for mat in owned_materials(target) if mat.get(BASE) == source), source)
-    if not any(channel['kind'] == kind for channel in weapon_channels.discover(live)):
+    channel = weapon_channels.channel_of(live, kind)
+    if channel is None:
         raise ValueError('原生通道已变化，请重新识别')
     entry, groups = weapon_channels.interface(live)
-    gate = weapon_channels.PROFILES[kind][1] if kind != 'VFX' else ''
-    enabled = bool(entry['stack'].panel_read(live)['values'].get(gate, False)) if gate else False
+    gate = channel['gate']
+    enabled = channel['enabled']
     apply(context, native_only=[source])
     live = next(mat for mat in owned_materials(target) if mat.get(BASE) == source)
     entry, groups = weapon_channels.interface(live)
@@ -511,10 +514,10 @@ def toggle_native(context, material, kind):
     from ....Host.Blender import material_panel
     material_panel.sync(live)
     state = getattr(context.scene, STATE)
-    for channel in state.channels:
-        if channel.material == source and channel.kind == kind:
-            channel.expanded = True
-    state.note = (('已关闭' if enabled else '已开启') + weapon_channels.PROFILES[kind][0]
+    for item in state.channels:
+        if item.material == source and item.kind == kind:
+            item.expanded = True
+    state.note = (('已关闭' if enabled else '已开启') + channel['label']
                   if gate else '已打开原生特效参数；没有添加额外发光')
     return live
 
@@ -730,11 +733,12 @@ def draw_glow(layout, context):
             if channel.kind != 'UNKNOWN':
                 live = owned.get(channel.material)
                 enabled = False
-                if channel.kind in weapon_channels.PROFILES:
-                    entry, _groups = weapon_channels.interface(live or channel.material)
-                    if entry:
-                        gate = weapon_channels.PROFILES[channel.kind][1]
-                        enabled = bool(entry['stack'].panel_read(live or channel.material)['values'].get(gate, False))
+                descriptor = weapon_channels.channel_of(live or channel.material, channel.kind)
+                if descriptor is None:
+                    box.label(text='通道已变化，请重新识别', icon='INFO')
+                    continue
+                if descriptor['gate']:
+                    enabled = descriptor['enabled']
                     action = box.operator(RURI_OT_weapon_channel_toggle.bl_idname,
                                           text='关闭' if enabled else '开启', icon='LIGHT')
                 else:
@@ -749,6 +753,7 @@ def draw_glow(layout, context):
                     box.prop(channel, 'selected')
             else:
                 box.label(text='未确认游戏光效材质；下方是人工预览', icon='INFO')
+                box.label(text=channel.detail[:90], icon='INFO')
             users = [obj for obj in meshes_of(state.target) if any(
                 slot.material and slot.material.get(BASE, slot.material) == channel.material for slot in obj.material_slots)]
             for obj in users:
@@ -764,7 +769,7 @@ def draw_glow(layout, context):
                         settings = getattr(preview, SETTINGS)
                         box.prop(settings, 'color', text='预览颜色')
                         box.prop(settings, 'strength', text='预览亮度')
-                if state.advanced and (obj.hide_viewport or obj.hide_render or channel.kind in ('VFX', 'UNKNOWN')):
+                if state.advanced and (obj.hide_viewport or obj.hide_render or channel.kind == 'UNKNOWN' or not descriptor['gate']):
                     row = box.row(align=True)
                     row.label(text=obj.name)
                     row.prop(obj, 'hide_viewport', text='', icon='HIDE_ON')

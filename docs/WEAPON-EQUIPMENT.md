@@ -75,6 +75,13 @@ and a canonical `equipment` record. Blender performs scene assembly/rollback and
 persists that record only after success. Stale UI rows never override source rows.
 Use a matching backend; the frontend has no duplicate planner or name snapshot.
 
+Native material channel rules likewise come from the private reader's
+`endfield.material.channels` declarations. Blender supplies current graph fields
+and image bindings, reads live values and draws/writes through the existing
+material panel. Matching declarations persist with the material for offline
+reopen; new or changed graphs without a reader remain `UNKNOWN`. Explicit scans
+refresh the declarations. Artist previews and reference presets remain manual.
+
 Character targets resolve through stamped rig identity. Cross-weapon mount keys
 resolve through authored component entries and exact transform paths, never a
 Handle/leaf-name guess. Multiple component entries for one key are ambiguous.
