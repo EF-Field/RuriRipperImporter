@@ -33,11 +33,17 @@ if args.reopen:
     state = getattr(bpy.context.scene, glow.STATE)
     state.target = target
     glow.scan(bpy.context)
-    native, = glow.owned_materials(target)
+    owned = glow.owned_materials(target)
+    native, = [mat for mat in owned if mat.get(glow.NATIVE)]
     assert native['ruri_uber_floats']['_EmissionBrightness'] == 11.5
     assert native['ruri_uber_floats']['_UseEmission'] == 1
     assert not any(n.get(glow.TAG) for n in native.node_tree.nodes)
     assert any(c.kind == 'PARALLAX' for c in state.channels)
+    for preview in (mat for mat in owned if mat.get(glow.PREVIEW)):
+        obj = preview[glow.PREVIEW]
+        assert not obj.hide_viewport and not obj.hide_render
+        getattr(preview, glow.SETTINGS).enabled = False
+        assert obj.hide_viewport and obj.hide_render
     glow.restore(bpy.context)
     assert not glow.owned_materials(target)
     print('NATIVE_CHANNEL_REOPEN_PASS', flush=True)
@@ -74,6 +80,18 @@ assert len(state.regions) == 0, 'Native effects must not also receive automatic 
 assert material['ruri_uber_floats']['_UseEmission'] == 0
 print('NATIVE_CHANNEL_DISCOVERY_PASS', flush=True)
 
+# The primary UI is an action, not a preparation checkbox: first click creates
+# a local copy AND switches the native channel on; second click switches off.
+assert bpy.ops.ruri.endfield_weapon_channel_toggle(material_name=material.name, kind='EMISSION') == {'FINISHED'}
+quick, = glow.owned_materials(target)
+assert quick['ruri_uber_floats']['_UseEmission'] == 1
+assert material['ruri_uber_floats']['_UseEmission'] == 0
+assert bpy.ops.ruri.endfield_weapon_channel_toggle(material_name=material.name, kind='EMISSION') == {'FINISHED'}
+assert quick['ruri_uber_floats']['_UseEmission'] == 0
+glow.restore(bpy.context)
+glow.scan(bpy.context)
+print('NATIVE_SINGLE_CLICK_TOGGLE_PASS', flush=True)
+
 # Shared meshes/materials outside this weapon retain source identity and graph.
 outside = bpy.data.objects.new('QA outside shared mesh', mesh)
 bpy.context.scene.collection.objects.link(outside)
@@ -100,7 +118,7 @@ assert material['ruri_uber_floats']['_UseEmission'] == 0
 
 class ProbeLayout:
     """Validate real RNA/operator names, not pixels or a visual acceptance."""
-    def __init__(self): self.props = []
+    def __init__(self): self.props, self.operators = [], []
     def container(self, *args, **kwargs): return self
     box = row = column = split = container
     def prop(self, data, key, **kwargs):
@@ -111,12 +129,16 @@ class ProbeLayout:
     def operator(self, name, **kwargs):
         module, operator = name.split('.')
         getattr(getattr(bpy.ops, module), operator).get_rna_type()
+        self.operators.append(name)
         return type('Arguments', (), {})()
 
 for channel in state.channels: channel.expanded = True
 probe = ProbeLayout()
 glow.draw_glow(probe, bpy.context)
 assert 'p_UseEmission' in probe.props and 'p_UseParallax' in probe.props
+assert 'ruri.endfield_weapon_channel_toggle' in probe.operators
+assert 'ruri.endfield_weapon_glow_apply' not in probe.operators
+assert 'selected' not in probe.props
 print('NATIVE_CHANNEL_UI_RNA_PASS', flush=True)
 glow.scan(bpy.context)
 glow.apply(bpy.context)
@@ -185,6 +207,32 @@ assert all(not c.selected for c in state.channels if c.material == unknown)
 glow.apply(bpy.context)
 assert hidden.active_material == unknown and hidden.hide_viewport and hidden.hide_render
 glow.restore(bpy.context)
+
+# Unknown geometry has an explicit, reversible artist preview; it is not
+# mislabeled as a recovered game material and never affects a shared mesh user.
+outside_hidden = bpy.data.objects.new('QA unknown shared outside', hidden_mesh)
+bpy.context.scene.collection.objects.link(outside_hidden)
+original_nodes = len(unknown.node_tree.nodes)
+assert bpy.ops.ruri.endfield_weapon_manual_preview(object_name=hidden.name, material_name=unknown.name) == {'FINISHED'}
+preview = hidden.active_material
+assert preview != unknown and preview.get(glow.PREVIEW) == hidden
+assert getattr(preview, glow.SETTINGS).enabled
+assert not hidden.hide_viewport and not hidden.hide_render
+assert outside_hidden.active_material == unknown
+assert len(unknown.node_tree.nodes) == original_nodes
+assert sum(n.bl_idname == 'ShaderNodeEmission' and bool(n.get(glow.TAG)) for n in preview.node_tree.nodes) == 1
+preview_count = len(bpy.data.materials)
+assert bpy.ops.ruri.endfield_weapon_manual_preview(object_name=hidden.name, material_name=unknown.name) == {'FINISHED'}
+assert hidden.hide_viewport and hidden.hide_render
+assert not getattr(preview, glow.SETTINGS).enabled
+assert len(bpy.data.materials) == preview_count
+getattr(preview, glow.SETTINGS).enabled = True
+assert not hidden.hide_viewport and not hidden.hide_render
+glow.restore(bpy.context)
+assert hidden.active_material == unknown and hidden.material_slots[0].link == 'DATA'
+assert hidden.hide_viewport and hidden.hide_render and glow.VISIBILITY not in hidden
+assert outside_hidden.active_material == unknown
+print('EXPLICIT_MANUAL_PREVIEW_TOGGLE_RESTORE_PASS', flush=True)
 print('NATIVE_TARGET_AND_UNKNOWN_PASS', flush=True)
 replacement = bpy.data.objects.new('QA replacement root', None)
 bpy.context.scene.collection.objects.link(replacement)
@@ -199,6 +247,7 @@ if args.output:
     mirror = getattr(native, material_panel.stack_of(native)['property'])
     mirror.p_UseEmission = True
     mirror.p_EmissionBrightness = 11.5
+    glow.toggle_preview(bpy.context, hidden, unknown)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.output))
     print('NATIVE_CHANNEL_SAVE_PASS', flush=True)

@@ -13,7 +13,7 @@ PROFILES = {
                  ('_UseEmission', '_EmissionColor', '_EmissionBrightness', '_EmissionMapUVSpeed',
                   '_EmissionAlphaBrightBreath', '_EmissionAlphaBrightBreathSpeed',
                   '_EmissionAlphaBrightBreathScaleMin', '_EmissionAlphaBrightBreathScaleMax')),
-    'PARALLAX': ('原生视差流光', '_UseParallax', '_ParallaxTex',
+    'PARALLAX': ('原生视差纹理', '_UseParallax', '_ParallaxTex',
                  ('_UseParallax', '_ParallaxColor', '_ParallaxMarchNum', '_ParallaxScale', '_ParallaxUseNormal')),
     'LIT_EMISSION': ('原生自发光', '_EnableEmissiveMap', '_EmissiveMap',
                      ('_EnableEmissiveMap', '_EmissiveColor', '_EmissiveMaskChannel',

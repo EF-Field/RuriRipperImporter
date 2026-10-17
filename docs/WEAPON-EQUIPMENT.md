@@ -93,8 +93,12 @@ existing socket intentionally preserves its current transforms and animation.
 
 ### Native material effects (Blender)
 
-Weapon → 材质光效 → choose the weapon root (or use 使用选中武器) →
-识别已有武器材质 → 准备所选独立控制 → expand its native parameters.
+Weapon → 材质光效 → choose the weapon root (or use 使用选中武器, which also
+scans) → click 开启/关闭 on the desired native channel. The first click prepares
+an object-local copy and actually toggles the channel; there is no separate
+preparation checkbox or apply step in the primary UI. Native parameter controls
+expand automatically after the action. Existing effect shaders have 调整原材质
+instead of a misleading universal emission toggle.
 Changing the target invalidates old rows. A target unlinked from the current
 scene is rejected, with an explicit selection button rather than a silent
 fallback to a different object or the whole character.
@@ -118,7 +122,15 @@ never automatically brightened or assigned a guessed effect material. Visibility
 icons are direct Blender object controls, separate from material restoration.
 Scanning/preparing never changes object visibility.
 
-手动叠加 remains an explicit artist-editing tool, not a reconstruction of game
+An unknown material's mesh has an explicit 手动发光预览 button. This is an
+artist-authored, object-local emission overlay, not a recovered game effect
+material. Clicking it creates/enables the preview and shows that mesh; clicking
+again disables it and restores its original viewport/render/layer visibility.
+Color and brightness are directly below the button. 原材质 restoration restores
+both bindings and preview visibility. Outside shared-mesh users stay unchanged.
+No names or potential-level conditions select the geometry or preview color.
+
+高级手动叠加 is collapsed by default and retains the old batch/artist tools, not a reconstruction of game
 effects. Native materials no longer also receive automatic grayscale overlays.
 To add an overlay after preparing a native-only copy, restore it first, add the
 manual region and prepare again. Existing saved overlays remain supported.

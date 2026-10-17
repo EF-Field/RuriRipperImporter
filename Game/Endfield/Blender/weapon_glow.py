@@ -22,6 +22,8 @@ ERROR = 'ruri_glow_error'
 BINDINGS = 'ruri_glow_binding_links'
 RECORD = 'ruri_glow_settings_record'
 NATIVE = 'ruri_glow_native_control'
+PREVIEW = 'ruri_glow_manual_preview_object'
+VISIBILITY = 'ruri_glow_manual_preview_visibility'
 _HYDRATING = set()
 # Artist reference preset, not a recovered game uniform. Scene-linear RGBA.
 NORMAL_COLOR = (.16, .055, 1.0, 1.0)
@@ -143,7 +145,8 @@ def scan(context):
             settings = getattr(owned[mat], SETTINGS)
             item.role, item.mask = settings.role, settings.mask
             item.mask_secondary = settings.mask_secondary
-    state.note = '原生通道 %d 项；手动叠加候选 %d 项。扫描不改变源材质或显隐' % (len(state.channels), len(state.regions))
+    unknown = sum(channel.kind == 'UNKNOWN' for channel in state.channels)
+    state.note = '原生通道 %d 项；待确认 %d 项；手动候选 %d 项' % (len(state.channels) - unknown, unknown, len(state.regions))
 
 
 def add_region(context):
@@ -210,6 +213,8 @@ def rebuild(material):
     tree.links.new(source, output.inputs['Surface'])
     if not settings.enabled:
         material[ERROR] = ''
+        if material.get(PREVIEW):
+            preview_visibility(material[PREVIEW])
         return
     frame = tree.nodes.new('NodeFrame')
     frame[TAG] = True
@@ -251,6 +256,23 @@ def rebuild(material):
     tree.links.new(emission.outputs[0], add.inputs[1])
     tree.links.new(add.outputs[0], output.inputs['Surface'])
     material[ERROR] = ''
+    if material.get(PREVIEW):
+        preview_visibility(material[PREVIEW])
+
+
+def preview_visibility(obj):
+    """Explicit artist preview visibility, never inferred gameplay state."""
+    saved = obj.get(VISIBILITY)
+    if saved is None:
+        return
+    previews = [s.material for s in obj.material_slots if s.material and s.material.get(PREVIEW) == obj]
+    enabled = any(getattr(mat, SETTINGS).enabled for mat in previews)
+    obj.hide_viewport = False if enabled else bool(saved['viewport'])
+    obj.hide_render = False if enabled else bool(saved['render'])
+    if obj.name in bpy.context.view_layer.objects:
+        obj.hide_set(False if enabled else bool(saved['layer']))
+    if not previews:
+        del obj[VISIBILITY]
 
 
 def finalize(material):
@@ -271,16 +293,18 @@ def changed(self, context):
         material[ERROR] = str(exc).splitlines()[0]
 
 
-def apply(context):
+def apply(context, native_only=None):
     state = getattr(context.scene, STATE)
     target = target_of(context)
     if state.scanned_target is not None and state.scanned_target != target:
         raise ValueError('武器目标已变化，请重新扫描')
-    native = list(dict.fromkeys(item.material for item in state.channels
-                               if item.selected and item.kind != 'UNKNOWN'))
-    regions = [(item.material, item.role, item.mask, item.mask_secondary)
-               for item in state.regions if item.selected]
-    if not state.regions:
+    native = (list(native_only) if native_only is not None else
+              list(dict.fromkeys(item.material for item in state.channels
+                                 if item.selected and item.kind != 'UNKNOWN')))
+    regions = ([] if native_only is not None else
+               [(item.material, item.role, item.mask, item.mask_secondary)
+                for item in state.regions if item.selected])
+    if native_only is None and not state.regions:
         # Support old saved selections without requiring either half of the pair.
         regions = [(mat, role, image_of(mat, key), None)
                    for mat, role, key in ((state.string_material, '光弦', '_MainTex'),
@@ -410,6 +434,8 @@ def restore(context):
         links = dict(obj.get(BINDINGS, {}))
         links.pop(str(index), None)
         obj[BINDINGS] = links
+    for obj in dict.fromkeys(item[0] for item in todo):
+        preview_visibility(obj)
     for material in set(item[-1] for item in todo):
         if material.users == int(material.use_fake_user):
             material.use_fake_user = False
@@ -462,6 +488,135 @@ class RURI_PG_weapon_glow_panel(bpy.types.PropertyGroup):
     string_material: PointerProperty(type=bpy.types.Material)
     pattern_material: PointerProperty(type=bpy.types.Material)
     note: StringProperty()
+    advanced: BoolProperty(name='高级手动叠加', default=False)
+
+
+def toggle_native(context, material, kind):
+    target = target_of(context)
+    if material is None or kind not in (*weapon_channels.PROFILES, 'VFX'):
+        raise ValueError('请选择有效原生通道')
+    source = material.get(BASE, material)
+    live = next((mat for mat in owned_materials(target) if mat.get(BASE) == source), source)
+    if not any(channel['kind'] == kind for channel in weapon_channels.discover(live)):
+        raise ValueError('原生通道已变化，请重新识别')
+    entry, groups = weapon_channels.interface(live)
+    gate = weapon_channels.PROFILES[kind][1] if kind != 'VFX' else ''
+    enabled = bool(entry['stack'].panel_read(live)['values'].get(gate, False)) if gate else False
+    apply(context, native_only=[source])
+    live = next(mat for mat in owned_materials(target) if mat.get(BASE) == source)
+    entry, groups = weapon_channels.interface(live)
+    if gate:
+        row = next(row for group in groups for row in group['rows'] if row['name'] == gate)
+        entry['stack'].panel_write(live, row, not enabled)
+    from ....Host.Blender import material_panel
+    material_panel.sync(live)
+    state = getattr(context.scene, STATE)
+    for channel in state.channels:
+        if channel.material == source and channel.kind == kind:
+            channel.expanded = True
+    state.note = (('已关闭' if enabled else '已开启') + weapon_channels.PROFILES[kind][0]
+                  if gate else '已打开原生特效参数；没有添加额外发光')
+    return live
+
+
+def toggle_preview(context, obj, material):
+    """One-click, per-object manual emission. Not recovered source VFX."""
+    target = target_of(context)
+    if obj is None or obj not in meshes_of(target) or material is None:
+        raise ValueError('请选择当前武器里的网格与材质')
+    source = material.get(BASE, material)
+    indices = [i for i, s in enumerate(obj.material_slots) if s.material and s.material.get(BASE, s.material) == source]
+    if not indices or obj.library or source.library:
+        raise ValueError('请选择此网格上的本地材质')
+    if obj.animation_data and any(d.data_path in ('hide_viewport', 'hide_render') for d in obj.animation_data.drivers):
+        raise ValueError('此网格显隐已有驱动，请先检查原驱动')
+    copies = list(dict.fromkeys(obj.material_slots[i].material for i in indices))
+    existing = [m for m in copies if m.get(PREVIEW) == obj]
+    if existing:
+        if len(existing) != 1:
+            raise ValueError('此网格有多份预览材质，请先恢复原材质')
+        settings = getattr(existing[0], SETTINGS)
+        settings.enabled = not settings.enabled
+        return existing[0]
+    if any(m.get(BASE) for m in copies):
+        raise ValueError('此区域已有独立控制，请先恢复原材质')
+    baseline = obj.get(VISIBILITY)
+    if baseline is None:
+        obj[VISIBILITY] = dict(viewport=obj.hide_viewport, render=obj.hide_render, layer=obj.hide_get())
+    material = source.copy()
+    bindings = []
+    try:
+        material.name = source.name + ' · 手动发光预览'
+        material[BASE], material[OWNER], material[NATIVE] = source, target, False
+        material_builder.content(material)
+        settings = getattr(material, SETTINGS)
+        settings.role = '手动预览（不是游戏源材质）'
+        settings.color = (1, 1, 1, 1)
+        settings.strength = 3
+        settings.mask = settings.mask_secondary = None
+        settings.enabled = True
+        if material.get(ERROR):
+            raise ValueError(material[ERROR])
+        for index in indices:
+            slot = obj.material_slots[index]
+            bindings.append((index, slot.link))
+            links = dict(obj.get(BINDINGS, {}))
+            links[str(index)] = slot.link
+            obj[BINDINGS] = links
+            slot.link, slot.material = 'OBJECT', material
+        material[PREVIEW] = obj
+        preview_visibility(obj)
+        return material
+    except Exception:
+        for index, link in reversed(bindings):
+            slot = obj.material_slots[index]
+            if link == 'DATA':
+                slot.material = None
+            slot.link = link
+            if link == 'OBJECT':
+                slot.material = source
+            links = dict(obj.get(BINDINGS, {}))
+            links.pop(str(index), None)
+            obj[BINDINGS] = links
+        preview_visibility(obj)
+        if material.users == int(material.use_fake_user):
+            material.use_fake_user = False
+            bpy.data.materials.remove(material)
+        raise
+
+
+class RURI_OT_weapon_manual_preview(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_weapon_manual_preview'
+    bl_label = '手动发光预览'
+    bl_description = '显示这个网格并增加可调人工自发光；不是已恢复游戏光效材质。再次点击关闭并恢复原显隐'
+    bl_options = {'REGISTER', 'UNDO'}
+    object_name: StringProperty()
+    material_name: StringProperty()
+
+    def execute(self, context):
+        try:
+            toggle_preview(context, bpy.data.objects.get(self.object_name), bpy.data.materials.get(self.material_name))
+        except Exception as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class RURI_OT_weapon_channel_toggle(bpy.types.Operator):
+    bl_idname = 'ruri.endfield_weapon_channel_toggle'
+    bl_label = '切换原生光效'
+    bl_description = '直接开启或关闭此原生通道；首次点击自动创建武器局部副本，保留共享源材质'
+    bl_options = {'REGISTER', 'UNDO'}
+    material_name: StringProperty()
+    kind: StringProperty()
+
+    def execute(self, context):
+        try:
+            toggle_native(context, bpy.data.materials.get(self.material_name), self.kind)
+        except Exception as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class RURI_OT_glow_add_region(bpy.types.Operator):
@@ -560,6 +715,9 @@ def draw_glow(layout, context):
     if state.target and not valid:
         layout.label(text='目标已离开当前场景，请重新选择武器', icon='ERROR')
         return
+    if not valid:
+        layout.label(text='先选中武器，再点击“使用选中武器”', icon='INFO')
+        return
     if valid:
         owned = {mat[BASE]: mat for mat in owned_materials(state.target)}
         for channel in state.channels:
@@ -567,24 +725,56 @@ def draw_glow(layout, context):
             if channel.material is None:
                 box.label(text='材质已移除，请重新扫描', icon='ERROR')
                 continue
-            box.label(text=channel.material.name + ' · ' + channel.role)
-            box.label(text=channel.detail, icon='INFO')
+            box.label(text=channel.role)
+            box.label(text=channel.material.name)
             if channel.kind != 'UNKNOWN':
-                box.prop(channel, 'selected')
                 live = owned.get(channel.material)
+                enabled = False
+                if channel.kind in weapon_channels.PROFILES:
+                    entry, _groups = weapon_channels.interface(live or channel.material)
+                    if entry:
+                        gate = weapon_channels.PROFILES[channel.kind][1]
+                        enabled = bool(entry['stack'].panel_read(live or channel.material)['values'].get(gate, False))
+                    action = box.operator(RURI_OT_weapon_channel_toggle.bl_idname,
+                                          text='关闭' if enabled else '开启', icon='LIGHT')
+                else:
+                    box.label(text='保留已有特效 Shader；不是额外发光', icon='INFO')
+                    action = box.operator(RURI_OT_weapon_channel_toggle.bl_idname, text='调整原材质')
+                action.material_name, action.kind = channel.material.name, channel.kind
                 if live:
-                    box.prop(channel, 'expanded')
+                    box.prop(channel, 'expanded', text='颜色／强度等参数')
                     if channel.expanded:
                         weapon_channels.draw(box, live, channel.kind)
+                if state.advanced:
+                    box.prop(channel, 'selected')
+            else:
+                box.label(text='未确认游戏光效材质；下方是人工预览', icon='INFO')
             users = [obj for obj in meshes_of(state.target) if any(
                 slot.material and slot.material.get(BASE, slot.material) == channel.material for slot in obj.material_slots)]
             for obj in users:
-                if obj.hide_viewport or obj.hide_render or channel.kind in ('VFX', 'UNKNOWN'):
+                if channel.kind == 'UNKNOWN':
+                    box.label(text=obj.name)
+                    preview = next((s.material for s in obj.material_slots if s.material and
+                                    s.material.get(PREVIEW) == obj and s.material.get(BASE) == channel.material), None)
+                    on = preview is not None and getattr(preview, SETTINGS).enabled
+                    action = box.operator(RURI_OT_weapon_manual_preview.bl_idname,
+                                          text='关闭手动预览' if on else '手动发光预览', icon='LIGHT')
+                    action.object_name, action.material_name = obj.name, channel.material.name
+                    if preview:
+                        settings = getattr(preview, SETTINGS)
+                        box.prop(settings, 'color', text='预览颜色')
+                        box.prop(settings, 'strength', text='预览亮度')
+                if state.advanced and (obj.hide_viewport or obj.hide_render or channel.kind in ('VFX', 'UNKNOWN')):
                     row = box.row(align=True)
                     row.label(text=obj.name)
                     row.prop(obj, 'hide_viewport', text='', icon='HIDE_ON')
                     row.prop(obj, 'hide_render', text='', icon='RESTRICT_RENDER_ON')
-        layout.label(text='手动叠加发光（独立编辑，不代表游戏原效果）')
+        layout.prop(state, 'advanced')
+        layout.operator(RURI_OT_weapon_glow_restore.bl_idname)
+        layout.label(text='开启 = 原生开关；手动预览 = 人工自发光', icon='INFO')
+        if not state.advanced:
+            return
+        layout.label(text='高级手动叠加（不代表游戏原效果）')
     for item in state.regions:
         box = layout.box()
         box.prop(item, 'selected', text=item.material.name if item.material else '材质已移除')
@@ -598,7 +788,7 @@ def draw_glow(layout, context):
         layout.operator(RURI_OT_weapon_glow_normal.bl_idname)
     if state.target and state.target.name in context.scene.objects:
         for material in owned_materials(state.target):
-            if material.get(NATIVE):
+            if material.get(NATIVE) or material.get(PREVIEW):
                 continue
             settings = getattr(material, SETTINGS)
             box = layout.box()
@@ -621,7 +811,7 @@ def draw_glow(layout, context):
 CLASSES = (RURI_PG_weapon_glow, RURI_PG_glow_region, RURI_PG_weapon_channel, RURI_PG_weapon_glow_panel,
            RURI_OT_glow_add_region, RURI_OT_weapon_glow_scan,
            RURI_OT_weapon_glow_apply, RURI_OT_weapon_glow_restore, RURI_OT_weapon_glow_normal,
-           RURI_OT_weapon_glow_target)
+           RURI_OT_weapon_glow_target, RURI_OT_weapon_channel_toggle, RURI_OT_weapon_manual_preview)
 
 
 def register():
