@@ -219,7 +219,7 @@ def load_avatars(cabs):
     for row in datasets.morph_blend_shapes(cabs):
         avatar = fresh.get(row["avatar"])
         if avatar is not None:
-            avatar.blend_shapes[row["ctrl"]] = {"index": row["index"], "name_hash": row["name_hash"]}
+            avatar.blend_shapes[row["ctrl"]] = {key: value for key, value in row.items() if key not in {'avatar', 'ctrl'}}
     AVATARS.update(fresh)
     return len(fresh)
 

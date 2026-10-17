@@ -139,15 +139,19 @@ def _resolve_index_shapes(meshes, table, targets, unresolved):
     mappings = table.get("shape_index_mappings") or []
     if not mappings:
         return
-    pattern = table.get("shape_mesh_pattern")
-    candidates = [o for o in meshes if pattern and re.search(pattern, o.name)
-                  and o.data.shape_keys is not None]
-    if len(candidates) != 1:
-        unresolved.append("BlendShape mesh role matched {0} meshes; expected one.".format(len(candidates)))
-        return
-    obj = candidates[0]
-    owner = obj.data.shape_keys
+    roles = {}
     for mapping in mappings:
+        pattern = mapping.get('mesh_pattern', table.get('shape_mesh_pattern'))
+        if pattern not in roles:
+            candidates = [o for o in meshes if pattern and re.search(pattern, o.name)
+                          and o.data.shape_keys is not None]
+            roles[pattern] = candidates[0] if len(candidates) == 1 else None
+            if len(candidates) != 1:
+                unresolved.append("BlendShape mesh role matched {0} meshes; expected one.".format(len(candidates)))
+        obj = roles[pattern]
+        if obj is None:
+            continue
+        owner = obj.data.shape_keys
         index = int(mapping["index"]) + 1
         if index < 1 or index >= len(owner.key_blocks):
             unresolved.append("{0}: BlendShape index {1} is absent.".format(mapping["ctrl"], index - 1))
@@ -172,13 +176,17 @@ def _resolve_shader_targets(meshes, table, unresolved):
         ctrl = mapping["ctrl"]
         param = mapping["param"]
         mask = int(mapping["renderer_mask"]) & 0xffffffff
-        scalar = mapping["type"] == "SkMorphShaderParamFloat"
-        if mapping["type"] not in {"SkMorphShaderParamFloat", "SkMorphShaderParamVector4"} or mapping["blend_mode"] not in {0, 1}:
-            unresolved.append(ctrl + ": unsupported shader type/blend mode (metadata retained).")
+        if mapping.get('binding_state') != 'ready':
+            unresolved.append(ctrl + ': UNKNOWN target declaration: ' + mapping.get('binding_reason', 'matching backend required'))
             continue
-        component = int(mapping["vector_index"])
-        if not 0 <= component < (1 if scalar else 4):
-            unresolved.append(ctrl + ": invalid shader component.")
+        kind = mapping.get('value_kind')
+        scalar = kind == 'scalar'
+        component, count = int(mapping['component']), int(mapping['component_count'])
+        if (kind not in ('scalar', 'vector') or count < 1 or (scalar and count != 1)
+                or not 0 <= component < count or len(mapping['defaults']) < count
+                or not isinstance(mapping.get('round_value'), bool)
+                or mapping.get('shader_match') not in ('leaf', 'exact')):
+            unresolved.append(ctrl + ': invalid neutral shader target schema.')
             continue
         seen = set()
         for obj in meshes:
@@ -189,7 +197,9 @@ def _resolve_shader_targets(meshes, table, unresolved):
                 material = slot.material
                 if material is None or material.node_tree is None:
                     continue
-                shader = str(material.get(table.get("shader_identity_property", ""), "")).rsplit("/", 1)[-1]
+                shader = str(material.get(table.get("shader_identity_property", ""), ""))
+                if mapping['shader_match'] == 'leaf':
+                    shader = shader.rsplit('/', 1)[-1]
                 if shader != mapping["shader"]:
                     continue
                 owner = material.node_tree
@@ -215,7 +225,7 @@ def _resolve_shader_targets(meshes, table, unresolved):
                         targets.setdefault(ctrl, []).append(MorphTarget(
                             owner, path, 1.0, setter, material.name + " · " + param,
                             index=-1 if scalar else component, default=float(mapping["defaults"][component]),
-                            round_value=mapping["blend_mode"] == 1))
+                            round_value=mapping['round_value']))
         if not targets.get(ctrl):
             unresolved.append(ctrl + ": no exact shader/mask/socket target (metadata retained).")
     return targets

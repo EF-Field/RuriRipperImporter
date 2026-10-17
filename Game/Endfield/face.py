@@ -157,10 +157,7 @@ def face_table(state):
         for ctrl, mapping in avatar.blend_shapes.items():
             shapes.append(dict(mapping, ctrl=ctrl))
         for ctrl, mapping in avatar.shader_params.items():
-            # A declaration identifies the shader independently from the material
-            # instance name. Keep the mask/type/component; the host must not guess.
-            shader = mapping["declaration"].rsplit("__", 1)[0]
-            shaders.append(dict(mapping, ctrl=ctrl, shader=shader))
+            shaders.append(dict(mapping, ctrl=ctrl))
         for entry in avatar.base_pose.values():
             if entry.bone_name:
                 base.setdefault(entry.bone_name,
@@ -173,7 +170,6 @@ def face_table(state):
                                    delta.scale))
     return {"base": base, "deltas": deltas, "shape_rule": SHAPE_KEY_RULE,
             "shape_index_mappings": shapes,
-            "shape_mesh_pattern": r"(?i)(?:^|_)(?:eye)?brow(?:_|$)",
             "shader_mappings": shaders,
             "shader_identity_property": "ruri_uber_shader",
             "renderer_mask_property": "ruri_renderer_mask"}

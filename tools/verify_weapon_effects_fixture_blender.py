@@ -6,6 +6,7 @@ written beside the requested report. A second clean Blender process checks the
 saved ID pointers with --mode reopen; no existing user scene is opened/changed.
 """
 import argparse
+from contextlib import nullcontext
 import hashlib
 import importlib.util
 import json
@@ -21,6 +22,7 @@ from unittest.mock import patch
 def bootstrap(args):
     sys.path.insert(0, str(Path(args.deps).resolve()))
     os.environ['RURI_RIPPERHOOK_BIN'] = str(Path(args.backend).resolve())
+    os.environ['RURI_RIPPER_WORKSPACE'] = str(Path(args.output).resolve().parent / 'fixture-workspace')
     root = Path(__file__).resolve().parents[1]
     spec = importlib.util.spec_from_file_location(
         'RuriRipperImporter', root / '__init__.py',
@@ -28,7 +30,10 @@ def bootstrap(args):
     addon = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = addon
     spec.loader.exec_module(addon)
-    addon.register()
+    addon._DRIVER.reload_modules()
+    from RuriRipperImporter.Kernel import bootstrap as runtime_bootstrap
+    with patch.object(runtime_bootstrap, 'configure'):
+        addon._DRIVER.register()
     from RuriRipperImporter.Game.Endfield.Blender import weapon_effects
     return weapon_effects
 
@@ -260,6 +265,32 @@ def fixture_cases(effects, report, output):
             assert snapshot(effects) == before and context_state() == state
             return 'Missing dependency transaction rolled back'
         run_case(report, 'partial_result_missing_dependency_rollback', incomplete)
+
+        def unresolved_template():
+            before, state = snapshot(effects), context_state()
+            original = list(components)
+            try:
+                components[:] = [dict(item, name=item['path'], mesh_template=json.dumps(dict(schema=1, state='UNKNOWN', reason='fixture_unresolved_source'))
+                    if i == 2 else '') for i, item in enumerate(original)]
+                ordinary = effects.import_effect(context, actor, row)
+                assert ordinary.created, 'unresolved preview must not block ordinary source import'
+                effects.remove_effect(context, ordinary.root)
+                # Normal removal deliberately retains potentially shared source
+                # datablocks. Measure rollback from the next transaction's start.
+                before = snapshot(effects)
+                def indexed(ctx, source, values):
+                    return load(ctx, [row['seed']], values), {}
+                with patch.object(effects.loading, 'read', return_value=nullcontext(SimpleNamespace(nodes=[]))), \
+                     patch.object(effects.materialise, 'materialise_indexed', side_effect=indexed):
+                    error = require_error(lambda: effects.import_effect(context, actor, row, preview_source_meshes=True))
+                assert 'fixture_unresolved_source' in error
+                assert_snapshot(effects, before)
+                assert context_state() == state
+                actions_unchanged()
+                return 'Ordinary import succeeds; explicit unresolved preview rolls back imported host data'
+            finally:
+                components[:] = original
+        run_case(report, 'private_unknown_template_is_preview_only_and_rolls_back', unresolved_template)
 
         def altered_hierarchy():
             result = effects.import_effect(context, actor, row)

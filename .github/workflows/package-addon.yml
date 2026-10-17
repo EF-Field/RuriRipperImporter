@@ -32,6 +32,8 @@ jobs:
           python tools/test_weapon_assembly.py
           python tools/test_weapon_catalog.py
           python tools/test_weapon_channels.py
+          python tools/test_morph_fields.py
+          python tools/test_source_target_contract.py
           python tools/test_names_zh.py
           python tools/test_shader_manifests.py
           python tools/package_addon.py

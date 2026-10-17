@@ -726,10 +726,18 @@ def morph_bones(cabs):
 
 def morph_shader_params(cabs):
     """The ctrls that drive a material parameter rather than geometry."""
-    return [dict(_shader_fields(row), avatar=row["avatar"], ctrl=row["ctrl"],
+    return [dict(_shader_target(row), **_shader_fields(row), avatar=row["avatar"], ctrl=row["ctrl"],
                  default=row["default"], vector_index=_int(row["vectorIndex"]),
                  declaration=row["declaration"], rid=int(row["rid"]))
             for row in _rows(MORPH_SHADER_PARAMS, cab=list(cabs))]
+
+
+def _shader_target(row):
+    if _int(row.get('targetContract', 0)) != 1:
+        raise ValueError('Morph target declarations require the matching private backend.')
+    return dict(shader=row['shader'], value_kind=row['valueKind'], component_count=_int(row['components']),
+        component=_int(row['component']), round_value=bool(_int(row['roundValue'])),
+        binding_state=row['targetState'], binding_reason=row['targetReason'], shader_match=row['shaderMatch'])
 
 
 def _shader_fields(row):
@@ -745,8 +753,13 @@ def morph_shader_definitions(cabs):
 
 
 def morph_blend_shapes(cabs):
-    return [{"avatar": row["avatar"], "ctrl": row["ctrl"], "name_hash": _int(row["nameHash"]),
-             "index": _int(row["index"])} for row in _rows(MORPH_BLEND_SHAPES, cab=list(cabs))]
+    built = []
+    for row in _rows(MORPH_BLEND_SHAPES, cab=list(cabs)):
+        if _int(row.get('targetContract', 0)) != 1:
+            raise ValueError('Morph shape declarations require the matching private backend.')
+        built.append(dict(avatar=row['avatar'], ctrl=row['ctrl'], name_hash=_int(row['nameHash']),
+            index=_int(row['index']), mesh_pattern=row['meshPattern'], mesh_basis=row['meshBasis']))
+    return built
 
 
 def morph_settings(cabs):

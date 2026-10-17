@@ -100,33 +100,29 @@ def _validate_existing(root, context, actor, row, anchor, bone, preview_source_m
         raise ValueError('现有特效挂接约束已被修改')
 
 
-def _source_target(value):
-    if not value:
-        return None
-    return value.get('target', value)
-
-
 def _mesh_templates(context, components, nodes, placed, values):
-    """Source mesh mode only: never invent billboard particles or physics."""
+    """Materialise private declarations; source renderer modes/references stay private."""
     count = 0
     for item in components:
-        if item['kind'] != 'particle_renderer':
+        if 'mesh_template' not in item:
+            raise ValueError('静态模板声明需要匹配版本后端')
+        if not item['mesh_template']:
             continue
-        data = json.loads(item['parameters'])
-        if int(data.get('render_mode', -1)) != 4:
-            continue
-        mesh = _source_target(data.get('mesh'))
-        materials = [_source_target(value) for value in data.get('materials', ())]
-        if not mesh or any(value is None for value in materials):
-            raise ValueError('粒子源网格／材质引用缺失：' + item['name'])
+        template = json.loads(item['mesh_template'])
+        if template.get('schema') != 1 or template.get('state') != 'ready':
+            raise ValueError('静态模板未解析：' + item['name'] + ' · ' + str(template.get('reason', 'unsupported schema')))
+        mesh, materials, seeds = template['mesh'], template['materials'], template['seeds']
+        if (not isinstance(mesh, str) or not mesh or not isinstance(materials, list)
+                or not isinstance(seeds, list) or not seeds
+                or any(not isinstance(value, str) or not value for value in materials + seeds)):
+            raise ValueError('静态模板声明格式无效')
         candidates = [placed.get(node.index) for node in nodes if node.path == item['path']]
         targets = list(dict.fromkeys(obj for obj in candidates if obj is not None))
         if len(targets) != 1:
             raise ValueError('粒子源挂点未唯一物化：' + item['path'])
-        seeds = list(dict.fromkeys([mesh['resource_seed']] + [value['resource_seed'] for value in materials]))
         with loading.read(seeds, values) as source:
-            obj = materialise.materialise_mesh_asset(context, source, mesh['source_key'],
-                    [value['source_key'] for value in materials], values, 'Source mesh · ' + item['name'])
+            obj = materialise.materialise_mesh_asset(context, source, mesh,
+                    materials, values, 'Source mesh · ' + item['name'])
         obj.parent = targets[0]
         obj.matrix_parent_inverse = Matrix.Identity(4)
         obj.matrix_basis = Matrix.Identity(4)

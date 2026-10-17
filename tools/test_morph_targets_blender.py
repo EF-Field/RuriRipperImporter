@@ -39,16 +39,17 @@ node.node_tree = node_group
 node.inputs['_Value'].default_value = .9
 node.inputs['_Vector'].default_value = (.1, .2, .3, .4)
 
-def shader(ctrl, param='_Value', kind='SkMorphShaderParamFloat', component=0, mask=0xffffffff, mode=0):
-    return {'ctrl': ctrl, 'shader': 'FixtureShader', 'param': param, 'type': kind,
-            'vector_index': component, 'renderer_mask': mask, 'blend_mode': mode,
-            'defaults': (.2, 0, 0, 0) if kind.endswith('Float') else (.1, .2, .3, .4)}
+def shader(ctrl, param='_Value', kind='scalar', component=0, mask=0xffffffff, round_value=False):
+    return {'ctrl': ctrl, 'shader': 'FixtureShader', 'shader_match': 'leaf', 'param': param,
+            'component': component, 'renderer_mask': mask, 'round_value': round_value,
+            'binding_state': 'ready', 'binding_reason': '', 'value_kind': kind, 'component_count': 1 if kind == 'scalar' else 4,
+            'defaults': (.2, 0, 0, 0) if kind == 'scalar' else (.1, .2, .3, .4)}
 
 table = {'base': {}, 'deltas': {}, 'shape_rule': {'suffix': r'_(?:[trs][xyz])_(max|min)$', 'signs': {'max': 1, 'min': -1}},
          'shape_index_mappings': [{'ctrl': 'a', 'index': 0}, {'ctrl': 'b', 'index': 0}, {'ctrl': 'c', 'index': 1}],
          'shape_mesh_pattern': r'_brow$', 'shader_identity_property': 'ruri_uber_shader',
          'renderer_mask_property': 'ruri_renderer_mask',
-         'shader_mappings': [shader('value'), shader('vector', '_Vector', 'SkMorphShaderParamVector4', 2),
+         'shader_mappings': [shader('value'), shader('vector', '_Vector', 'vector', 2),
                              shader('masked', mask=4)]}
 
 before = (right.value, left.value, legacy.value, node.inputs['_Value'].default_value,
@@ -90,10 +91,17 @@ assert abs(next(c for c in shader_curves if c.array_index == 2).evaluate(1) - .8
 
 # Explicit mask metadata unlocks only that renderer; no fallback name guessing.
 obj['ruri_renderer_mask'] = 4
-masked_table = dict(table, shader_mappings=[shader('masked', mask=4, mode=1)])
+masked_table = dict(table, shader_mappings=[shader('masked', mask=4, round_value=True)])
 assert 'masked' in face.bindings(bpy.context, rig, masked_table)['ctrls']
 face.drive(bpy.context, rig, masked_table, {'masked': .65})
 assert node.inputs['_Value'].default_value == 1
+
+# Raw source metadata never participates in neutral host binding.
+neutral = dict(shader('neutral'), type='OpaqueSourceType', blend_mode=99, vector_index=99)
+assert 'neutral' in face.bindings(bpy.context, rig, dict(table, shader_mappings=[neutral]))['ctrls']
+unresolved = dict(neutral, ctrl='unresolved', binding_state='UNKNOWN', binding_reason='unsupported_source_semantics')
+unknown_report = face.bindings(bpy.context, rig, dict(table, shader_mappings=[unresolved]))
+assert 'unresolved' not in unknown_report['ctrls'] and any('unsupported_source_semantics' in s for s in unknown_report['unresolved_targets'])
 
 # Two role meshes are ambiguous: never animate whichever happens to come first.
 other = bpy.data.objects.new('other_brow', mesh.copy())

@@ -82,6 +82,13 @@ material panel. Matching declarations persist with the material for offline
 reopen; new or changed graphs without a reader remain `UNKNOWN`. Explicit scans
 refresh the declarations. Artist previews and reference presets remain manual.
 
+Effect static-template preview consumes private `mesh_template` declarations;
+renderer modes, source-reference decoding and resource dependency planning stay
+in the backend. Missing preview references remain `UNKNOWN` without blocking
+ordinary source import; explicit template preview rolls back on failure. This
+does not add particle playback. Facial shader/shape targets likewise use neutral
+backend declarations, leaving actual Blender/RNA binding in the host.
+
 Character targets resolve through stamped rig identity. Cross-weapon mount keys
 resolve through authored component entries and exact transform paths, never a
 Handle/leaf-name guess. Multiple component entries for one key are ambiguous.

@@ -88,16 +88,24 @@ class MorphFields(unittest.TestCase):
     def test_face_table_carries_non_bone_targets(self):
         skeletal = importlib.import_module(PACKAGE + '.Game.Endfield.skeletal_morph')
         avatar = skeletal.MorphAvatar('a', 'a', 7)
-        avatar.blend_shapes['shape_ctrl'] = {'index': 0, 'name_hash': 123}
+        avatar.blend_shapes['shape_ctrl'] = {'index': 0, 'name_hash': 123, 'mesh_pattern': '^fixture_role$', 'mesh_basis': 'fixture_declared'}
         avatar.shader_params['shader_ctrl'] = {'param': '_Value', 'default': .25, 'defaults': (.25, 0, 0, 0),
-                                             'declaration': 'FixtureShader__Value', 'type': 'SkMorphShaderParamFloat',
-                                             'vector_index': 0, 'renderer_mask': 0xffffffff, 'blend_mode': 0}
+                                             'declaration': 'OpaqueSourceDeclaration', 'shader': 'FixtureShader',
+                                             'value_kind': 'scalar', 'component_count': 1, 'component': 0,
+                                             'renderer_mask': 0xffffffff, 'round_value': False, 'binding_state': 'ready'}
         with patch.object(face, 'avatars_for', return_value=[avatar]):
             table = face.face_table(object())
         self.assertEqual(table['shape_index_mappings'][0]['ctrl'], 'shape_ctrl')
+        self.assertEqual(table['shape_index_mappings'][0]['mesh_pattern'], '^fixture_role$')
         self.assertEqual(table['shader_mappings'][0]['shader'], 'FixtureShader')
         self.assertEqual(table['shader_mappings'][0]['renderer_mask'], 0xffffffff)
         self.assertNotIn('attack_ctrl', table['deltas'])
+
+    def test_old_target_projection_requires_matching_backend(self):
+        for method in (datasets.morph_shader_params, datasets.morph_blend_shapes):
+            with patch.object(datasets, '_rows', return_value=[{'avatar': 'fixture'}]):
+                with self.assertRaisesRegex(ValueError, 'matching private backend'):
+                    method(['cab'])
 
 
 if __name__ == '__main__':
