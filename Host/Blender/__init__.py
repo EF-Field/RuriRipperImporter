@@ -227,7 +227,13 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
         return ui_stage.load(context, stage, options)
 
     def pick_rectangle(self, context, picture, rectangle, done, snap=0.0):
-        region_picker.request(picture, rectangle, done, snap)
+        region_picker.request(context, picture, rectangle, done, snap)
+
+    def picking(self):
+        return region_picker.active()
+
+    def stop_picking(self):
+        region_picker.stop()
 
     def write_secondary_motion(self, context, rig, reading):
         from . import cloth_writer

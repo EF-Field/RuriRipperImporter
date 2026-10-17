@@ -41,19 +41,40 @@ ZOOM_IN = {"WHEELUPMOUSE", "WHEELINMOUSE"}
 ZOOM_OUT = {"WHEELDOWNMOUSE", "WHEELOUTMOUSE"}
 ACCEPT = {"RET", "NUMPAD_ENTER", "SPACE"}
 CANCEL = {"ESC", "RIGHTMOUSE"}
+PASSED = {"WINDOW_DEACTIVATE", "NONE"}
+TICK = 0.1
 
 #: What the next ``INVOKE_DEFAULT`` of the operator is for: (picture, rectangle, done, snap).
 _pending = []
+#: The one interaction there is, or nothing.
+_active = []
 
 
-def request(picture, rectangle, done, snap=0.0):
-    """Start the interaction. The operator takes what is asked of it from here because an operator
-    is started with an event and properties, and a picture is neither."""
+def active():
+    return bool(_active)
+
+
+def request(context, picture, rectangle, done, snap=0.0):
+    """Hand the user this picture to pick on. There is only ever one interaction: where one is under way in this
+    window it is handed the picture, and where it is under way in another it is ended first. The operator takes what
+    it is asked to start from here because an operator is started with an event and properties, and a picture is
+    neither."""
+    if _active:
+        window = getattr(context, "window", None)
+        if window is None or window == _active[0].window:
+            _active[0].retarget(context, picture, rectangle, done, snap)
+            return
+        _active[0].close()
     _pending[:] = [(picture, rectangle, done, snap)]
     try:
         bpy.ops.ruri.region_picker("INVOKE_DEFAULT")
     finally:
         _pending.clear()
+
+
+def stop():
+    if _active:
+        _active[0].close()
 
 
 class Levels:
@@ -222,20 +243,21 @@ def draw(picker, levels, width, height, size=FONT_SIZE):
     _frame(inner_low, inner_high, OUTLINE, OUTLINE_WIDTH)
     gpu.state.scissor_test_set(False)
 
-    extent = "{0:.0f} x {1:.0f} m".format(selection[2] - selection[0], selection[3] - selection[1])
-    if picker.snap > 0:
-        extent += "  ({0:.0f} x {1:.0f} cells)".format((selection[2] - selection[0]) / picker.snap,
-                                                      (selection[3] - selection[1]) / picker.snap)
+    where, how_big = app_picture.describe(selection, picker.snap)
     title_size = size * 1.2
     title_y = free_y + free_height - PADDING - title_size
     title_right = free_x + PADDING + _text_width(picker.picture.label, title_size)
-    label_x = min(max(inner_low[0], free_x + PADDING), free_x + free_width - PADDING - _text_width(extent, size))
-    ceiling = free_y + free_height - size - PADDING
-    label_y = inner_high[1] + 6.0 if inner_high[1] + 6.0 <= ceiling else inner_high[1] - size - 6.0
-    label_y = min(max(label_y, free_y + PADDING), ceiling)
-    if label_x < title_right + size and label_y + size > title_y:
-        label_y = title_y - size * 1.6
-    _text(label_x, label_y, extent, size)
+    line = size * 1.4
+    block_height = line * 2
+    block_x = min(max(inner_low[0], free_x + PADDING),
+                  free_x + free_width - PADDING - max(_text_width(where, size), _text_width(how_big, size)))
+    ceiling = free_y + free_height - PADDING - block_height
+    block_y = inner_high[1] + 6.0 if inner_high[1] + 6.0 <= ceiling else inner_high[1] - block_height - 6.0
+    block_y = min(max(block_y, free_y + PADDING), ceiling)
+    if block_x < title_right + size and block_y + block_height > title_y:
+        block_y = title_y - block_height - 6.0
+    _text(block_x, block_y + line + 2.0, how_big, size)
+    _text(block_x, block_y + 2.0, where, size)
     _text(free_x + PADDING, title_y, picker.picture.label, title_size)
     length = _ruler_length(view.zoom)
     ruler_x = free_x + PADDING
@@ -279,15 +301,19 @@ def free_area(area, region):
 # One interaction
 # ---------------------------------------------------------------------------
 class Session:
-    """The picker, the textures it draws from, and which region of which area it is drawn in."""
+    """The one interaction: the picker, the textures it draws from, and which region of which area of which
+    window it is drawn in."""
 
-    def __init__(self, area, region, picture, rectangle, done, snap):
+    def __init__(self, window, workspace, area, region, picture, rectangle, done, snap):
+        self.window = window
+        self.workspace = workspace
         self.area = area
         self.region_pointer = region.as_pointer()
         self.picker = app_picture.Picker(picture, rectangle, snap)
         self.levels = Levels(picture)
         self.done = done
         self.pressed = False
+        self.closed = False
         self.handle = None
 
     def region(self):
@@ -304,14 +330,61 @@ class Session:
         area_x, area_y, area_width, area_height = self.picker.area
         return area_x <= x <= area_x + area_width and area_y <= y <= area_y + area_height
 
-    def start(self):
-        self.handle = bpy.types.SpaceView3D.draw_handler_add(_draw_callback, (self,), "WINDOW", "POST_PIXEL")
+    def tag_redraw(self):
+        try:
+            self.area.tag_redraw()
+        except ReferenceError:
+            pass
 
-    def stop(self):
+    def start(self):
+        _active[:] = [self]
+        self.handle = bpy.types.SpaceView3D.draw_handler_add(_draw_callback, (self,), "WINDOW", "POST_PIXEL")
+        self.window.cursor_modal_set("CROSSHAIR")
+        self.workspace.status_text_set(HELP)
+
+    def end(self):
+        """Take everything the interaction put on the screen away. What is left is the operator, which leaves at its
+        next tick."""
+        if self in _active:
+            _active.clear()
         if self.handle is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self.handle, "WINDOW")
             self.handle = None
         self.levels.release()
+        try:
+            self.window.cursor_modal_restore()
+            self.workspace.status_text_set(None)
+        except ReferenceError:
+            pass
+        self.tag_redraw()
+
+    def close(self):
+        self.closed = True
+        self.end()
+
+    def retarget(self, context, picture, rectangle, done, snap):
+        """Hand the interaction another picture, window and callback -- and the 3D view a click in another view
+        asked for. The picture the user is looking at is replaced, never added to."""
+        self.done = done
+        area = getattr(context, "area", None)
+        if area is not None and area.type == "VIEW_3D" and area != self.area:
+            region = next((one for one in area.regions if one.type == "WINDOW"), None)
+            if region is not None:
+                self.tag_redraw()
+                self.area = area
+                self.region_pointer = region.as_pointer()
+        if picture is self.picker.picture:
+            self.picker.reoffer(rectangle, snap)
+        else:
+            self.levels.release()
+            self.picker = app_picture.Picker(picture, rectangle, snap)
+            self.levels = Levels(picture)
+            self.pressed = False
+        region = self.region()
+        if region is not None:
+            self.arrange(region)
+            self.levels.ensure(self.picker.view.zoom)
+        self.tag_redraw()
 
 
 def _draw_callback(session):
@@ -333,27 +406,35 @@ class RURI_OT_region_picker(bpy.types.Operator):
         return context.area is not None and context.area.type == "VIEW_3D"
 
     def invoke(self, context, event):
-        if not _pending:
+        if _active or not _pending:
             return {"CANCELLED"}
         picture, rectangle, done, snap = _pending[0]
         area = context.area
         region = next((one for one in area.regions if one.type == "WINDOW"), None)
         if region is None:
             return {"CANCELLED"}
-        self.session = Session(area, region, picture, rectangle, done, snap)
-        self.session.arrange(region)
-        self.session.levels.ensure(self.session.picker.view.zoom)
-        self.session.start()
-        context.window.cursor_modal_set("CROSSHAIR")
-        context.workspace.status_text_set(HELP)
+        session = Session(context.window, context.workspace, area, region, picture, rectangle, done, snap)
+        self.session = session
+        session.arrange(region)
+        session.levels.ensure(session.picker.view.zoom)
+        session.start()
+        self.timer = context.window_manager.event_timer_add(TICK, window=context.window)
         context.window_manager.modal_handler_add(self)
         area.tag_redraw()
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         session = self.session
+        if session.closed:
+            return self._leave(context)
+        if event.type.startswith("TIMER") or event.type in PASSED:
+            return {"PASS_THROUGH"}
         region = session.region()
-        if region is None or (event.value == "PRESS" and event.type in CANCEL):
+        if region is None:
+            return self._finish(context, None)
+        if context.window != session.window:
+            return {"PASS_THROUGH"}
+        if event.value == "PRESS" and event.type in CANCEL:
             return self._finish(context, None)
         x = event.mouse_x - region.x
         y = event.mouse_y - region.y
@@ -387,29 +468,32 @@ class RURI_OT_region_picker(bpy.types.Operator):
             session.levels.ensure(picker.view.zoom)
         elif event.value == "PRESS" and event.type in ACCEPT:
             return self._finish(context, picker.window)
-        session.area.tag_redraw()
+        session.tag_redraw()
         return {"RUNNING_MODAL"}
 
     def cancel(self, context):
-        self._teardown(context)
+        self.session.close()
+        self._drop_timer(context)
 
-    def _teardown(self, context):
-        self.session.stop()
-        if context.window is not None:
-            context.window.cursor_modal_restore()
-        if context.workspace is not None:
-            context.workspace.status_text_set(None)
-        try:
-            self.session.area.tag_redraw()
-        except ReferenceError:
-            pass
+    def _drop_timer(self, context):
+        timer, self.timer = getattr(self, "timer", None), None
+        if timer is not None:
+            context.window_manager.event_timer_remove(timer)
+
+    def _leave(self, context):
+        """The interaction was ended from outside: another was asked for in a different window, or the selection
+        left its place."""
+        self._drop_timer(context)
+        return {"CANCELLED", "PASS_THROUGH"}
 
     def _finish(self, context, rectangle):
-        self._teardown(context)
+        session = self.session
+        session.end()
+        self._drop_timer(context)
         if rectangle is None:
             return {"CANCELLED"}
         try:
-            self.session.done(context, rectangle)
+            session.done(context, rectangle)
         except Exception as failure:
             self.report({"ERROR"}, "{0}: {1}".format(type(failure).__name__, failure))
             return {"CANCELLED"}
@@ -421,4 +505,5 @@ def register():
 
 
 def unregister():
+    stop()
     bpy.utils.unregister_class(RURI_OT_region_picker)

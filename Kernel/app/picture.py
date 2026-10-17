@@ -82,6 +82,16 @@ def snapped(rect, cell):
             math.ceil(rect[2] / cell) * cell, math.ceil(rect[3] / cell) * cell)
 
 
+def describe(rect, snap=0.0):
+    """A world rectangle in words, as (where, how big): its extent along each axis, and its size in metres and, where
+    the world is made of cells ``snap`` on a side, in cells."""
+    where = "X {0:.0f} .. {1:.0f}    Z {2:.0f} .. {3:.0f}".format(rect[0], rect[2], rect[1], rect[3])
+    size = "{0:.0f} x {1:.0f} m".format(rect[2] - rect[0], rect[3] - rect[1])
+    if snap > 0:
+        size += "  ({0:.0f} x {1:.0f} cells)".format((rect[2] - rect[0]) / snap, (rect[3] - rect[1]) / snap)
+    return where, size
+
+
 def clamped(rect, bounds):
     """``rect`` pulled inside ``bounds``, never thinner than :data:`MINIMUM_SIDE`.
     A rectangle that sits wholly outside comes back as the nearest sliver of the
@@ -209,6 +219,12 @@ class Picker:
     def _shaped(self, rect):
         """A rectangle as this picker offers it: inside the picture, then out to the cells it meets."""
         return snapped(clamped(rect, self.picture.rect), self.snap)
+
+    def reoffer(self, rectangle, snap):
+        """Put another window, and the cells it is taken in, where this picker's own was: what the user sees of the
+        picture -- how it is zoomed, where it is panned -- is theirs and stays."""
+        self.snap = float(snap)
+        self.window = self._shaped(rectangle or self.picture.rect)
 
     def _world(self, x, y):
         world_x, world_z = self.view.to_world(x, y)

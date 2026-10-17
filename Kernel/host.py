@@ -445,7 +445,8 @@ class DisplaySettings(abc.ABC):
 
 class RegionPicking(abc.ABC):
     """A host whose user can drag a rectangle over a picture of the world: a map drawn in the panel,
-    and a way to point into it that is larger than the panel itself."""
+    and a way to point into it that is larger than the panel itself. There is never more than one
+    interaction: asking for another hands the one under way the new picture."""
 
     @abc.abstractmethod
     def pick_rectangle(self, context, picture, rectangle, done, snap=0.0):
@@ -453,7 +454,18 @@ class RegionPicking(abc.ABC):
         starting from ``rectangle`` -- world coordinates ``(min_x, min_z, max_x, max_z)``, or None --
         and, where the world is made of cells ``snap`` on a side, out to the cells it meets.
         ``done(context, rectangle)`` is called once with the rectangle they accepted and never when
-        they cancel. Returns at once: the interaction outlives this call."""
+        they cancel. Returns at once: the interaction outlives this call. An interaction already
+        under way is handed all of this instead of a second one being made, and stays where it is
+        unless ``context`` is a user's action in another place; ``context`` is None where the call
+        answers a change of selection rather than a click."""
+
+    @abc.abstractmethod
+    def picking(self):
+        """Whether an interaction is under way."""
+
+    @abc.abstractmethod
+    def stop_picking(self):
+        """End the interaction under way, if there is one, as a cancel."""
 
 
 #: Every protocol a driver can answer, in the order a diagnostics surface lists them.

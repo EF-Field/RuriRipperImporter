@@ -208,13 +208,14 @@ def _on_filter_edit(state, context):
 def _on_selection(state, context):
     """Selecting a whole scene IS the intent to look at it, so its inventory is
     read then. A place inside a map needs nothing: its map's inventory was read
-    when the map was picked."""
+    when the map was picked -- except that the picker, if one is up, follows the selection."""
     if filtering.is_rebuilding():
         return
     if state.kind == SELF_CONTAINED:
         entry = _selected(state)
         if entry is not None:
             _read_summary(state, entry.key)
+    _sync_picker(state)
 
 
 def _on_map_change(state, context):
@@ -224,6 +225,7 @@ def _on_map_change(state, context):
 
 def _on_scale(state, context):
     state.window_for = ""
+    _sync_picker(state)
 
 
 HANDLERS = app_state.Handlers(
@@ -262,8 +264,9 @@ def rebuild(state):
     with filtering.rebuilding():
         if state.kind == UI_STAGE:
             BOUND.open(None, state)
-            return
-        BOUND.open(_table(state), state, standing=_standing(state))
+        else:
+            BOUND.open(_table(state), state, standing=_standing(state))
+    _sync_picker(state)
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +470,20 @@ def _has_picture(context):
     return entry is not None and scene_state.picture_of(entry.key) is not None
 
 
+def _offer(context, state, entry, picture):
+    """Hand the host's one picker this place's map, with the window it starts from. What it picks goes to this place."""
+    key = entry.key
+
+    def accepted(where, rectangle):
+        chosen = state_of(where)
+        chosen.window_min_x, chosen.window_min_z, chosen.window_max_x, chosen.window_max_z = rectangle
+        chosen.window_for = key
+        chosen.status = "{0}: {1}, {2}. Read it to price it.".format(
+            picture.label, *app_picture.describe(rectangle, _cell(chosen)))
+
+    host_port.current().pick_rectangle(context, picture, _rect(state), accepted, _cell(state))
+
+
 def _pick(context, arguments):
     """Let the user drag a rectangle over the selected place's map: that rectangle becomes the window."""
     state = state_of(context)
@@ -475,21 +492,36 @@ def _pick(context, arguments):
     if picture is None:
         state.status = "The map has not been read yet."
         return {"CANCELLED"}
-    key = entry.key
-
-    def accepted(where, rectangle):
-        chosen = state_of(where)
-        chosen.window_min_x, chosen.window_min_z, chosen.window_max_x, chosen.window_max_z = rectangle
-        chosen.window_for = key
-        chosen.status = "{0}: {1:.0f} x {2:.0f} m picked on its map. Read it to price it.".format(
-            picture.label, rectangle[2] - rectangle[0], rectangle[3] - rectangle[1])
-
-    host_port.current().pick_rectangle(context, picture, _rect(state), accepted, _cell(state))
+    _offer(context, state, entry, picture)
     return None
 
 
+def _sync_picker(state):
+    """Keep the one picker, if there is one, on the place that is selected: its map, and the window that place
+    starts from. A picker with nothing to pick on -- the selection left the places, or the map would not read --
+    ends. Nothing here starts one."""
+    host = host_port.current()
+    if host_port.RegionPicking not in host.capabilities or not host.picking():
+        return
+    entry = _selected(state) if state.kind == STREAMING else None
+    if entry is None:
+        host.stop_picking()
+        return
+    picture = scene_state.picture_of(entry.key)
+    if picture is None and not state.loading:
+        picture = scene_state.read_picture(entry.key, entry.label)
+    if picture is not None:
+        _offer(None, state, entry, picture)
+    elif scene_state.PICTURE_FOR == entry.key:
+        host.stop_picking()
+    else:
+        _want_picture(entry)
+
+
 def _whole(context, arguments):
-    state_of(context).window_for = ""
+    state = state_of(context)
+    state.window_for = ""
+    _sync_picker(state)
 
 
 PICK = command.COMMANDS.define(
@@ -606,6 +638,7 @@ def _want_picture(entry):
         if state_of(None).loading:
             return 0.5
         scene_state.read_picture(key, label)
+        _sync_picker(state_of(None))
         host.redraw()
         return None
 
@@ -628,6 +661,7 @@ def _draw_map(layout, state, entry):
     row.operator(PICK.id, icon="BORDERMOVE")
     row.operator(WHOLE.id, text="", icon="ZOOM_ALL")
     cell = _cell(state)
+    layout.label(text=app_picture.describe(window)[0], icon="EMPTY_AXIS")
     if cell:
         layout.label(text="{0:.0f} x {1:.0f} cells of {2:.0f} m".format(
             (window[2] - window[0]) / cell, (window[3] - window[1]) / cell, cell), icon="GRID")
