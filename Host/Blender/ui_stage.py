@@ -18,6 +18,8 @@ invented here:
 
 from __future__ import annotations
 
+import math
+
 import bpy
 import numpy
 from mathutils import Vector
@@ -110,7 +112,7 @@ def _write_light(obj, target, value, scale):
     elif target == LIGHT_ENERGY:
         data.energy = value * scale
     elif target == LIGHT_ANGLE:
-        data.angle = 2.0 * value
+        data.angle = math.radians(2.0 * value)
     elif target == LIGHT_COLOR:
         data.color = value
     elif target == LIGHT_SHADOWS:

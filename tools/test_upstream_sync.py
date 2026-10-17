@@ -1,5 +1,6 @@
 """Merged upstream retarget flow and the fork's optional companions coexist."""
 import ast
+import math
 from contextlib import nullcontext
 from pathlib import Path
 import sys
@@ -89,6 +90,41 @@ class MergeTests(unittest.TestCase):
         names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
         for name in ('materialise_indexed', 'materialise_mesh_asset', 'build_rig'):
             self.assertEqual(names.count(name), 1)
+
+
+class LightingFollowupTests(unittest.TestCase):
+    def setUp(self):
+        names = ('LIGHT_DIRECTION', 'LIGHT_ENERGY', 'LIGHT_ANGLE', 'LIGHT_COLOR',
+                 'LIGHT_SHADOWS', 'LIGHT_VOLUME')
+        namespace = dict(math=math, **{name: name for name in names})
+        self.write = functions('Host/Blender/ui_stage.py', ['_write_light'], namespace)._write_light
+        self.light = NS(data=NS())
+
+    def test_sun_half_angle_degrees_become_diameter_radians(self):
+        for value in (0.0, 0.25, 45.0):
+            with self.subTest(value=value):
+                self.write(self.light, 'LIGHT_ANGLE', value, 16.0)
+                self.assertAlmostEqual(self.light.data.angle, math.radians(2.0 * value))
+
+    def test_non_angle_light_fields_preserve_existing_semantics(self):
+        self.write(self.light, 'LIGHT_ENERGY', 3.0, 4.0)
+        self.write(self.light, 'LIGHT_COLOR', (0.2, 0.4, 0.6), 4.0)
+        self.write(self.light, 'LIGHT_VOLUME', 0.7, 4.0)
+        self.write(self.light, 'LIGHT_SHADOWS', 1.0, 4.0)
+        self.assertEqual(self.light.data.energy, 12.0)
+        self.assertEqual(self.light.data.color, (0.2, 0.4, 0.6))
+        self.assertEqual(self.light.data.volume_factor, 0.7)
+        self.assertTrue(self.light.data.use_shadow)
+
+    def test_medium_runtime_births_cover_all_new_datablock_sites(self):
+        module = ast.parse((ROOT/'Host/Blender/medium.py').read_text(encoding='utf-8'))
+        counts = {'apply': 1, '_domain': 2, '_grid_tree': 1, '_material': 1, '_lamp_copies': 2}
+        for node in module.body:
+            if isinstance(node, ast.FunctionDef) and node.name in counts:
+                calls = [call for call in ast.walk(node) if isinstance(call, ast.Call)
+                         and isinstance(call.func, ast.Attribute) and call.func.attr == 'born'
+                         and isinstance(call.func.value, ast.Name) and call.func.value.id == 'plugin_data']
+                self.assertEqual(len(calls), counts[node.name], node.name)
 
 
 if __name__ == '__main__':
