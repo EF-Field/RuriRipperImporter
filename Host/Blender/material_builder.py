@@ -1334,6 +1334,8 @@ class MaterialBuilder:
         made = self._build(stated)
         made[SOURCE_KEY_PROPERTY] = str(key)
         made[CAPABILITY_STATE_PROPERTY] = capability_state(bpy.context.scene)
+        from . import material_coverage
+        material_coverage.capture(made, stated, self.options)
         finalize_material(made)
         self._by_key[key] = made
         _announce(made)

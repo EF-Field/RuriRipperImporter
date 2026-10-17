@@ -15,6 +15,8 @@ differently; it does not do it.
 
 
 def register():
+    from ....Host.Blender import material_coverage
+    material_coverage.register_reader('Endfield', 'endfield.material.coverage')
     from . import weapons, weapon_effects, weapon_glow, weapon_states
     weapons.register()
     weapon_effects.register()
@@ -23,6 +25,8 @@ def register():
 
 
 def unregister():
+    from ....Host.Blender import material_coverage
+    material_coverage.unregister_reader('Endfield')
     from . import weapons, weapon_effects, weapon_glow, weapon_states
     weapon_states.unregister()
     weapon_glow.unregister()
