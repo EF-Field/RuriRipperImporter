@@ -38,6 +38,7 @@ MENU = "menu"
 POPOVER = "popover"
 LIST = "list"
 PROGRESS = "progress"
+PICTURE = "picture"
 NATIVE = "native"
 
 LEFT = "LEFT"
@@ -232,6 +233,12 @@ class Layout:
 
     def progress(self, factor, text=""):
         self._child(PROGRESS, factor=factor, text=text)
+
+    def picture(self, picture, window=None):
+        """A :class:`Kernel.app.picture.Picture` at the width of the panel, with ``window`` -- a world
+        rectangle -- outlined on it. Only a host answering :class:`Kernel.host.RegionPicking` has a
+        surface for one, so a body asks that first."""
+        self._child(PICTURE, picture=picture, window=window)
 
     def native(self, draw):
         """A part only THIS application has a surface for, drawn by its own renderer

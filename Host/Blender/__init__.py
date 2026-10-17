@@ -48,12 +48,13 @@ def _preferences():
 
 
 class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, host_port.Rig,
-                  host_port.Timeline, host_port.Retarget, host_port.MorphTargets, host_port.NodeMaterials):
+                  host_port.Timeline, host_port.Retarget, host_port.MorphTargets, host_port.NodeMaterials,
+                  host_port.RegionPicking):
     """What Blender can do, and where Blender keeps the one path that differs
     per machine. A skeleton, an animation surface and morph targets, a scene of
-    separate objects with a compositor behind it, and node-graph materials; the
-    three Painter answers instead (a bake cache, texture sets, plugin-settable
-    display) are not Blender's to answer."""
+    separate objects with a compositor behind it, node-graph materials, and a 3D
+    viewport to point into a picture with; the three Painter answers instead (a
+    bake cache, texture sets, plugin-settable display) are not Blender's to answer."""
 
     name = "Blender"
 
@@ -225,6 +226,9 @@ class BlenderHost(host_port.Host, host_port.SceneGraph, host_port.Compositor, ho
         from . import ui_stage
         return ui_stage.load(context, stage, options)
 
+    def pick_rectangle(self, context, picture, rectangle, done, snap=0.0):
+        region_picker.request(picture, rectangle, done, snap)
+
     def write_secondary_motion(self, context, rig, reading):
         from . import cloth_writer
         return cloth_writer.write(context, rig, reading)
@@ -326,7 +330,7 @@ HOST = host_port.bind(BlenderHost())
 from ... import Game                                                    # noqa: E402
 from . import (rna, render, coordinate, rig_identity, plugin_data, linked_twins, material_builder,  # noqa: E402
                material_panel, derived_state, allocator, animation_builder, step_loader, browser_panel,
-               post_panel, viewpoint)
+               post_panel, viewpoint, picture_view, region_picker)
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +355,8 @@ def _holds_process_state(module):
 #: reloaded, just after these, so forgetting one costs ordering rather than
 #: correctness.
 _DRIVER_ORDER = (rna, render, coordinate, rig_identity, plugin_data, linked_twins, material_builder, material_panel,
-                 derived_state, animation_builder, step_loader, browser_panel, post_panel)
+                 derived_state, animation_builder, step_loader, browser_panel, post_panel, picture_view,
+                 region_picker)
 
 
 def _reload_tree(root_name):
@@ -466,6 +471,8 @@ def register():
     # 材质参数面板:每个生成着色栈把自己的接口 + 读写路径注册进来(Game.register 里发生),
     # 所以这一格要先立起来。面板本体全场只有一个,画的是选中网格持有的那张材质。
     material_panel.register()
+    picture_view.register()
+    region_picker.register()
     # Every game folder under Game/ registers itself; the panel above names none
     # of them and simply draws whatever tabs the enabled hooks turn on.
     Game.register()
@@ -495,6 +502,8 @@ def unregister():
     animation_builder.unregister_slot_autofix()
     post_panel.unregister()
     Game.unregister()
+    region_picker.unregister()
+    picture_view.unregister()
     material_panel.unregister()
     viewpoint.unregister()
     allocator.unregister()

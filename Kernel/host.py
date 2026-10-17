@@ -9,7 +9,7 @@ WHAT A HOST CAN DO is the set of protocols its driver derives from, and nothing
 else: a driver is a :class:`Host` and whichever of :class:`SceneGraph`,
 :class:`Compositor`, :class:`Rig`, :class:`Timeline`, :class:`Retarget`,
 :class:`MorphTargets`, :class:`NodeMaterials`, :class:`TextureCache`,
-:class:`TextureSets` and :class:`DisplaySettings` it can actually answer.
+:class:`TextureSets`, :class:`DisplaySettings` and :class:`RegionPicking` it can actually answer.
 :attr:`Host.capabilities` reads that back with ``isinstance``. There is no second list of capability names to
 keep in step with the methods, and no method a host has to carry just to raise:
 a host that cannot pose a skeleton is not a :class:`Rig`, and every option,
@@ -443,9 +443,22 @@ class DisplaySettings(abc.ABC):
     requirements for."""
 
 
+class RegionPicking(abc.ABC):
+    """A host whose user can drag a rectangle over a picture of the world: a map drawn in the panel,
+    and a way to point into it that is larger than the panel itself."""
+
+    @abc.abstractmethod
+    def pick_rectangle(self, context, picture, rectangle, done, snap=0.0):
+        """Hand the user ``picture`` (:class:`Kernel.app.picture.Picture`) to drag a rectangle over,
+        starting from ``rectangle`` -- world coordinates ``(min_x, min_z, max_x, max_z)``, or None --
+        and, where the world is made of cells ``snap`` on a side, out to the cells it meets.
+        ``done(context, rectangle)`` is called once with the rectangle they accepted and never when
+        they cancel. Returns at once: the interaction outlives this call."""
+
+
 #: Every protocol a driver can answer, in the order a diagnostics surface lists them.
 PROTOCOLS = (SceneGraph, Compositor, Rig, Timeline, Retarget, MorphTargets, NodeMaterials,
-             TextureCache, TextureSets, DisplaySettings)
+             TextureCache, TextureSets, DisplaySettings, RegionPicking)
 
 _BOUND = []
 

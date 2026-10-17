@@ -18,13 +18,14 @@ under its own handle and already cached by (id, args).
 
 from __future__ import annotations
 
-from ...Kernel.app import staging
+from ...Kernel.app import picture, staging
 from ...Kernel.bridge import cabmap_state
 
 MAPS = "endfield.scene.maps"
 LANDMARKS = "endfield.scene.landmarks"
 CHUNK_SUMMARY = "endfield.scene.chunks"
 SCENE_STATES = "endfield.scene.states"
+SCENE_MAP = "endfield.scene.map"
 PLACEMENTS = "endfield.scene.placements"
 PLACEMENT_MATERIALS = "endfield.scene.placement_materials"
 PLACEMENT_COUNTS = "endfield.scene.placement_counts"
@@ -273,6 +274,19 @@ def landmarks(language):
              "rect": (row["minX"], row["minZ"], row["maxX"], row["maxZ"]),
              "seed": row["seed"]}
             for row in _rows(LANDMARKS, language=language)]
+
+
+def scene_map(level_id, label, budget):
+    """The picture the game's map UI draws for one place, as a :class:`Kernel.app.picture.Picture`:
+    the finest detail its map sprites ship whose longer side fits ``budget`` pixels."""
+    table = _table(SCENE_MAP, levelId=level_id, budget=int(budget))
+    try:
+        rect = tuple(table.cell(0, side) for side in ("minX", "minZ", "maxX", "maxZ"))
+        height, width = int(table.cell(0, "height")), int(table.cell(0, "width"))
+        pixels = table.view(0, "pixels").reshape(height, width, 4).copy()
+    finally:
+        table.close()
+    return picture.Picture(rect, pixels, label)
 
 
 def _viewer(map_name, anchor, states):
@@ -533,6 +547,7 @@ def chunk_summary(map_name):
         "anchored_bytes": _int(row.get("anchoredBytes", 0)),
         "floating_files": _int(row.get("floatingFiles", 0)),
         "floating_bytes": _int(row.get("floatingBytes", 0)),
+        "cell_size": _int(row.get("cellSize", 0)),
     }
 
 

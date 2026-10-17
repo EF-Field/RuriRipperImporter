@@ -78,6 +78,9 @@ def system_memory_gb():
 SELF_CONTAINED = "self_contained"
 STREAMING = "streaming"
 
+#: The most pixels the longer side of a place's map picture may have.
+MAP_BUDGET = 4608
+
 SCENES = {SELF_CONTAINED: [], STREAMING: []}   # kind -> list[dict]
 LANDMARKS = {}          # streaming map id -> list[dict], its named places
 
@@ -95,6 +98,10 @@ RESOLVED_CABS = []      # list[str] -- the seed CABs an import of it needs
 CLOSURE_CABS = 0        # how many CABs those seeds pull in, the real memory proxy
 CURRENT_MAP = ""
 CURRENT_WINDOW = ()     # (min_x, min_z, max_x, max_z, scene_state_id, detail_level)
+PICTURE = None          # Picture -- the map of the place PICTURE_FOR names, or None
+PICTURE_FOR = ""        # the place the last read of a map picture was for; "" before any
+PICTURE_NOTE = ""       # why there is no picture for it, in words, or ""
+PICTURE_ASKED = ""      # the place a read is already scheduled for
 SEED = ""               # the seed the hook spells for exactly this discovery
 STATUS = "Refresh to read the game's scene list."
 
@@ -107,7 +114,8 @@ def load_scenes(language):
     """Read the game's scene list, already split into the two kinds and already
     named: which containers carry a scene's name, which place belongs to which
     map, and how the ids group are the game's own facts, stated by the hook."""
-    global SCENES, LANDMARKS, STATUS
+    global SCENES, LANDMARKS, STATUS, PICTURE, PICTURE_FOR, PICTURE_NOTE
+    PICTURE, PICTURE_FOR, PICTURE_NOTE = None, "", ""
 
     TABLES[MAPS] = datasets.scene_map_table(language)
     TABLES[PLACES] = datasets.landmark_table(language)
@@ -137,6 +145,23 @@ def scaled(rect, scale):
     centre_x, centre_z = (min_x + max_x) * 0.5, (min_z + max_z) * 0.5
     half_x, half_z = (max_x - min_x) * 0.5 * scale, (max_z - min_z) * 0.5 * scale
     return (centre_x - half_x, centre_z - half_z, centre_x + half_x, centre_z + half_z)
+
+
+def picture_of(level_id):
+    """The map picture of one place if it has been read, else None. Never reads it: a redraw runs this."""
+    return PICTURE if level_id and level_id == PICTURE_FOR else None
+
+
+def read_picture(level_id, label):
+    """Read the map picture of one place -- the only one held, so a session pays for one picture at a time."""
+    global PICTURE, PICTURE_FOR, PICTURE_NOTE, PICTURE_ASKED
+    PICTURE_ASKED = ""
+    PICTURE, PICTURE_FOR, PICTURE_NOTE = None, level_id, ""
+    try:
+        PICTURE = datasets.scene_map(level_id, label, MAP_BUDGET)
+    except Exception as exc:
+        PICTURE_NOTE = "{0}: {1}".format(type(exc).__name__, exc)
+    return PICTURE
 
 
 def load_summary(map_name):
@@ -234,6 +259,8 @@ def seed():
 def reset():
     global SCENES, LANDMARKS, SUMMARIES, TABLE, MATERIALS_BY_ROW, COUNTS, SEED_PATHS
     global RESOLVED_CABS, CLOSURE_CABS, CURRENT_MAP, CURRENT_WINDOW, SEED, STATUS
+    global PICTURE, PICTURE_FOR, PICTURE_NOTE, PICTURE_ASKED
+    PICTURE, PICTURE_FOR, PICTURE_NOTE, PICTURE_ASKED = None, "", "", ""
     SCENES = {SELF_CONTAINED: [], STREAMING: []}
     LANDMARKS = {}
     TABLES.clear()

@@ -136,6 +136,13 @@ class ColumnTable:
         raw = self._data[index][offsets[row]:offsets[row + 1]].tobytes()
         return raw if self._kinds[index] == BLOB else raw.decode("utf-8")
 
+    def view(self, row, column):
+        """One cell of a blob column as bytes over the reader's own memory: no copy, and good only until
+        ``close()``. What a caller that wants the cell as an array wants, where ``cell`` hands over a copy."""
+        index = self.index_of(column)
+        offsets = self._offsets[index]
+        return self._data[index][offsets[row]:offsets[row + 1]]
+
     def values(self, column):
         """Whole column, as values this side OWNS -- text as a python list (built
         once, cached), scalars as a numpy copy. A copy because the caller may
