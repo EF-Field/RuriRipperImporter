@@ -397,7 +397,8 @@ CLASSES = (RURI_PG_weapon_states, RURI_OT_import_weapon_state, RURI_OT_remove_we
 def migrate_navigation(_unused=None):
     """Old saved catalog pane (numeric 3) now opens the unified state entry."""
     from .. import weapon
-    for scene in bpy.data.scenes:
+    # Startup registration runs under _RestrictData; load_post retries with scenes.
+    for scene in getattr(bpy.data, 'scenes', ()):
         navigation = getattr(scene, weapon.STATE, None)
         if navigation is not None and navigation.get('pane') == 3:
             navigation.pane = 'states'

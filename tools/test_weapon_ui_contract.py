@@ -2,11 +2,26 @@
 import ast
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class WeaponUIContract(unittest.TestCase):
+    def test_navigation_migration_tolerates_restricted_startup_data(self):
+        module = ast.parse((ROOT / 'Game/Endfield/Blender/weapon_states.py').read_text(encoding='utf-8'))
+        migrate = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == 'migrate_navigation')
+        migrate.decorator_list = []
+        migrate.body = [n for n in migrate.body if not isinstance(n, ast.ImportFrom)]
+        navigation = SimpleNamespace(get=lambda key: 3, pane='old')
+        env = dict(bpy=SimpleNamespace(data=SimpleNamespace()), weapon=SimpleNamespace(STATE='nav'))
+        exec(compile(ast.Module(body=[migrate], type_ignores=[]), '<migration-test>', 'exec'), env)
+        env['migrate_navigation']()
+        self.assertEqual(navigation.pane, 'old')
+        env['bpy'].data = SimpleNamespace(scenes=[SimpleNamespace(nav=navigation)])
+        env['migrate_navigation']()
+        self.assertEqual(navigation.pane, 'states')
+
     def test_declared_tab_beside_character(self):
         module = ast.parse((ROOT / 'Game/Endfield/__init__.py').read_text(encoding='utf-8'))
         tabs = [node for node in ast.walk(module) if isinstance(node, ast.Call)
