@@ -8,7 +8,7 @@ from ...Kernel import host as host_port
 from ...Kernel.app import browser, cast_panel, command, filtering, schemas
 from ...Kernel.app import state as app_state, view as app_view
 from ...Kernel.bridge import cabmap_state
-from . import datasets, names_zh
+from . import datasets
 
 HOLDS_PROCESS_STATE = True
 STATE = 'ruri_endfield_weapon_catalog'
@@ -51,7 +51,7 @@ FILTER_SPEC = filtering.register_spec(filtering.FilterSpec(
 
 def project(rows):
     """Display projection only. Ambiguous rows retain provenance, but no load seed."""
-    return [[row['seed'], names_zh.weapon_label(row['asset']), row['asset'],
+    return [[row['seed'], row.get('label', row['asset']), row['asset'],
              FAMILIES.get(row['family'], row['family']), row['family'], row['status'],
              row['seed'] if row['status'] == 'ready' else '',
              '可导入' if row['status'] == 'ready' else '预制体路径存在歧义',

@@ -16,7 +16,7 @@ from mathutils import Matrix, Vector
 from ....Host.Blender import material_builder, materialise, material_panel, render, rig_identity
 from ....Kernel.app import browser, loading
 from ....Kernel.app import layout as app_layout
-from .. import datasets, names_zh, weapon_catalog
+from .. import datasets, weapon_catalog
 from . import weapons, weapon_effects
 
 STATE = 'ruri_endfield_weapon_states'
@@ -164,7 +164,7 @@ def import_state(context, seed, appearance='base', deco='none', options=None, *,
     frame, subframe = context.scene.frame_current, context.scene.frame_subframe
     succeeded = False
     try:
-        root = bpy.data.objects.new(names_zh.weapon_label(plan['weapon']) +
+        root = bpy.data.objects.new(plan.get('label', plan['weapon']) +
                 (' · 满潜' if plan['refined'] else ' · 普通') + ' · ' + deco, None)
         context.collection.objects.link(root)
         root.empty_display_size = .1

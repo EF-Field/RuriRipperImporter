@@ -16,48 +16,14 @@ def row(slot, **kw):
 
 
 class EquipmentContractTests(unittest.TestCase):
-    def test_no_implicit_equipment(self):
-        self.assertEqual(contract.selections(), {})
-
-    def test_selection_roundtrip_and_multiple_slots(self):
-        choices = {'0': 'fixture:A', '42': 'fixture:B'}
-        self.assertEqual(contract.selections(contract.selection_json(choices)), choices)
-
-    def test_reject_invalid_selections(self):
-        for text in ['[]', '{"0":"a","0":"b"}', '{"01":"a"}', '{"-1":"a"}',
-                     '{"0":""}', '{"0":null}', '{"2147483648":"a"}', '{"٠":"a"}']:
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                contract.selections(text)
-
-    def test_hidden_dependency_is_preserved_and_ordered(self):
-        parent = row(18)
-        child = row(5, bone='', mount_kind='weapon', target_slot=18, weapon_mount=100,
-                    status='cross_weapon_mount', scale=.85)
-        self.assertEqual(contract.attachment_order([child, parent], child), [parent, child])
-
-    def test_context_required_never_becomes_a_default(self):
-        equipment = row(7, seed='', status='equipment_required')
-        with self.assertRaises(ValueError):
-            contract.attachment_order([equipment], equipment)
-
-    def test_cycle_missing_parent_duplicate_slot(self):
-        a = row(3, mount_kind='weapon', target_slot=4, weapon_mount=1)
-        b = row(4, mount_kind='weapon', target_slot=3, weapon_mount=1)
-        for rows in ([a, b], [a], [a, a]):
-            with self.subTest(rows=rows), self.assertRaises(ValueError):
-                contract.attachment_order(rows, a)
-
-    def test_modes_are_independent(self):
-        a = row(9)
-        self.assertEqual(contract.attachment_order([row(9, mode='idle'), a], a), [a])
-
-    def test_invalid_scale_and_slot(self):
-        for scale in [0, -1, float('nan'), float('inf')]:
-            with self.subTest(scale=scale), self.assertRaises(ValueError):
-                contract.attachment_order([row(1, scale=scale)], row(1))
+    def test_host_numeric_guard(self):
         for slot in [True, -1, 1.5, float('inf')]:
             with self.subTest(slot=slot), self.assertRaises(ValueError):
                 contract.slot_number(slot)
+
+    def test_domain_plan_and_selection_rules_live_in_backend(self):
+        self.assertFalse(hasattr(contract, 'selections'))
+        self.assertFalse(hasattr(contract, 'attachment_order'))
 
     def test_mount_exact_path_and_component_ambiguity(self):
         identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]

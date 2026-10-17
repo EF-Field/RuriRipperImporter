@@ -2,7 +2,7 @@
 
 ## Standalone imports
 
-Weapon opens on **武器资源** by default. Like Character, its compact pane selector
+Weapon opens on **武器状态** by default. Like Character, its compact pane selector
 is followed by category, shared search/rules, the resource list, shared import
 options and Load/Reveal. Open an index, scan, select a row and Load; no character,
 equipment slot or mount is required. Materials and referenced textures use the
@@ -53,7 +53,10 @@ remain visible but unselectable. Conventional known families are selectable;
 unknown families are explicitly unclassified. Misc props are not equipment rows.
 This catalog does not decode WeaponBasicTable, claim a table weapon ID, infer
 signature ownership, or validate in-game equipment-type restrictions. Display
-labels are prefab asset names. There is no guessed signature recommendation.
+labels come from a provenanced private display-name snapshot and retain prefab
+asset names. Unknown resources keep their technical labels. There is no guessed
+signature recommendation. Character labels also come directly from the private
+roster table, with original technical labels retained for search; NPCs are unchanged.
 
 ## Assembly contract
 
@@ -63,6 +66,14 @@ and selection provenance are separate columns. Cross-weapon edges retain their
 target slot and mount key. Parents are prepared before children, with cycle and
 missing-dependency checks. Hidden dependencies are retained in this manual preview;
 this is not automatic gameplay visibility.
+
+The private reader owns this dependency plan and equipment validation through
+`endfield.weapon.assembly(seed, equipment, slot, mode, selection?)`. Blender sends
+the saved equipment JSON unchanged; the reader validates duplicate keys, slots,
+catalog availability and fixed-slot exclusions, then returns ordered source rows
+and a canonical `equipment` record. Blender performs scene assembly/rollback and
+persists that record only after success. Stale UI rows never override source rows.
+Use a matching backend; the frontend has no duplicate planner or name snapshot.
 
 Character targets resolve through stamped rig identity. Cross-weapon mount keys
 resolve through authored component entries and exact transform paths, never a

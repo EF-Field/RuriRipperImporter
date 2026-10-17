@@ -110,7 +110,9 @@ def main():
     assert movement > 1e-5, movement
     # Missing mount and malformed import both leave pre-existing objects intact.
     try:
-        weapons.attach(bpy.context, actor, dict(row, slot=999, bone='missing'), options)
+        bad = dict(row, slot=999, bone='missing')
+        with patch.object(weapons, 'assembly_for', return_value=[bad]):
+            weapons.attach(bpy.context, actor, bad, options)
         raise AssertionError('missing mount accepted')
     except ValueError:
         pass
@@ -121,7 +123,9 @@ def main():
         raise ValueError('injected partial import failure')
     with patch.object(weapons.loading, 'load', side_effect=fail):
         try:
-            weapons.attach(bpy.context, actor, dict(row, slot=999), options)
+            fixture = dict(row, slot=999)
+            with patch.object(weapons, 'assembly_for', return_value=[fixture]):
+                weapons.attach(bpy.context, actor, fixture, options)
             raise AssertionError('partial failure accepted')
         except ValueError:
             pass

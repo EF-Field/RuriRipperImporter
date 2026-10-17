@@ -63,7 +63,7 @@ def main():
     row = dict(status='ready', seed='test', slot=997, mode='fight', scale=1,
                config='test', bone=rig_identity.of(actor).unity_name_of(bone))
     with patch.object(weapons.loading, 'load', side_effect=load):
-        made, _ = weapons.attach(bpy.context, actor, row)
+        made, _ = weapons.attach(bpy.context, actor, row, plan=[row])
     actual = imported[0].matrix_basis
     assert max(abs(actual[i][j]-offset[i][j]) for i in range(4) for j in range(4)) < 1e-5, actual
     assert host.selected_rig(bpy.context) == actor, 'Adding weapon lost the character play target'

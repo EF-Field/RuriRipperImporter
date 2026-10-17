@@ -17,10 +17,6 @@ shared buttons under it, the Anim and Face panes -- is the one every cast tab ha
 which sources its Anim and Face panes have besides the engine's own, and the one
 option it adds under the list.
 
-For this frontend's Character list, an offline Chinese-name snapshot overlays
-the backend label through the existing host-table API. Resource keys and seeds
-stay untouched, and the original label stays searchable. Other tabs are unchanged.
-
 Nothing here imports a host. The Blender panel next door is a shell that
 materialises this declaration; Painter's dock renders the same one.
 """
@@ -37,7 +33,6 @@ from ...Kernel.app import state as app_state
 from ...Kernel.app import view as app_view
 from ...Kernel.bridge import cabmap_state
 from . import datasets
-from . import names_zh
 
 STATE = "ruri_roster"
 BROWSER_STATE = "ruri_cabmap"
@@ -155,41 +150,13 @@ def _has_selection(context):
     return _loaded(context) and BOUND.picked(state_of(context)) is not None
 
 
-def _localized_table(table):
-    """Overlay the small cast list through the existing host-table API.
-
-    Only the label changes. Keys, seeds, facets, roles and original labels all
-    survive, so the shared search handles both Chinese and technical names.
-    NPCs and unrelated tabs retain the backend's labels.
-    """
-    key = table.first_named(app_view.KEY)
-    label = table.first_named(app_view.LABEL)
-    if not key or not label:
-        return table
-    original_column = 'frontend_original_label'
-    if original_column in table.names:
-        return table
-    columns = [name + ('#' if table.kind(name) in ('int', 'real') else '') + '|' + title
-               for name, title in zip(table.names, table.titles)]
-    projected = []
-    for index in range(len(table)):
-        row = table.row(index)
-        original = row[label]
-        if row.get('kind') in (CHARACTERS, UI_MODELS):
-            row[label] = names_zh.character_label(row[key], original)
-        projected.append([row[name] for name in table.names] + [original])
-    return cabmap_state.BRIDGE.open_host_table(
-        SPEC_KEY + ':zh-cn', columns + [original_column + '|原始名称'],
-        projected, list(table.roles) + [0])
-
-
 def _refresh(context, arguments):
     """Read the cast out of the game's own config containers."""
     state = state_of(context)
     tongue = language(state)
     state.language = tongue
     try:
-        table = _localized_table(datasets.cast(tongue))
+        table = datasets.cast(tongue)
     except Exception as exc:
         state.status = "{0}: {1}".format(type(exc).__name__, exc)
         return {"CANCELLED"}

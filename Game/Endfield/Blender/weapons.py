@@ -15,7 +15,6 @@ from ....Kernel.bridge import cabmap_state
 from ....Kernel import statement
 from .. import datasets
 from .. import weapon_contract
-from .. import names_zh
 from .. import roster
 
 STATE = 'ruri_endfield_weapons'
@@ -34,15 +33,32 @@ STATUSES = {
 }
 
 
-def rows_for(actor, selections=None):
+def _request(actor, equipment=None):
     seed = rig_identity.seed_of(actor)
     if not seed:
         raise ValueError('请选择由插件导入、带来源信息的角色骨架')
     if cabmap_state.BRIDGE is None:
         raise ValueError('请先在资源浏览器打开游戏目录与索引')
-    choices = weapon_contract.selections(actor.get(SELECTIONS, '')) if selections is None else selections
-    args = {'equipment': weapon_contract.selection_json(choices)} if choices else {}
-    return datasets._rows(datasets.WEAPONS, seed=seed, **args)
+    # The saved record is opaque to Blender. Only the private reader validates,
+    # updates and normalizes slot choices, including duplicate JSON keys.
+    return dict(seed=seed, equipment=actor.get(SELECTIONS, '') if equipment is None else equipment)
+
+
+def rows_for(actor, equipment=None):
+    return datasets._rows(datasets.WEAPONS, **_request(actor, equipment))
+
+
+def assembly_for(actor, row, selection=None):
+    args = _request(actor)
+    args.update(slot=weapon_contract.slot_number(row['slot']), mode=row['mode'])
+    if selection is not None:
+        args['selection'] = selection
+    order = datasets._rows(datasets.WEAPON_ASSEMBLY, **args)
+    # Protocol/freshness guard only; source eligibility and dependency rules are
+    # owned by the private plan. Never reconstruct a plan from an old UI row.
+    if not order or order[-1]['slot'] != args['slot'] or any(r['mode'] != args['mode'] for r in order):
+        raise ValueError('后端装配计划与所选槽位不匹配，请使用匹配版本后端')
+    return order
 
 
 def catalog_rows():
@@ -181,15 +197,13 @@ def _attach_one(context, actor, row, target, bone, offset, parent_slot, existing
     return socket, old
 
 
-def attach(context, actor, row, options=None, *, rows=None, replace=False):
+def attach(context, actor, row, options=None, *, plan=None, replace=False):
     """Attach a dependency graph atomically; replacements keep the old tree until success."""
     if context.mode != 'OBJECT':
         raise ValueError('请切换到物体模式')
     if actor is None or actor.type != 'ARMATURE' or actor.name not in context.scene.objects:
         raise ValueError('请选择当前场景中的角色骨架')
-    cross = row.get('mount_kind') == 'weapon' or row['status'] == 'cross_weapon_mount'
-    graph_rows = rows if rows is not None else rows_for(actor) if cross else [row]
-    order = weapon_contract.attachment_order(graph_rows, row)
+    order = assembly_for(actor, row) if plan is None else plan
     slot = int(row['slot'])
     before = set(bpy.data.objects)
     data_before = {name: set(getattr(bpy.data, name)) for name in
@@ -319,7 +333,7 @@ def populate_slots(state, actor, rows):
         item = state.rows.add()
         item.slot, item.mode, item.status = int(row['slot']), row['mode'], row['status']
         item.resource_kind = row.get('resource_kind', 'equipment' if row['status'] == 'equipment_required' else 'fixed')
-        item.name = '%d · %s' % (item.slot, names_zh.weapon_label(row['weapon'].rsplit('/', 1)[-1]) or '装备武器')
+        item.name = '%d · %s' % (item.slot, row.get('label', row['weapon']) or '装备武器')
         item.detail = '%s · %s%s' % (STATUSES.get(row['status'], row['status']), row['bone'],
                                     '' if row['visible'] else ' · 默认隐藏（技能时序未接入）')
     state.index = 0
@@ -329,17 +343,10 @@ def equip_selected(context, actor, slot, seed, options=None):
     """Commit the user choice only after the new attachment graph has succeeded."""
     if not actor or not actor.is_editable:
         raise ValueError('请指定当前文件中可编辑的角色骨架')
-    matches = [r for r in catalog_rows() if r['seed'] == seed]
-    if len(matches) != 1 or matches[0]['status'] != 'ready':
-        raise ValueError('武器已不在唯一可用的当前目录中，请重新扫描')
-    choices = weapon_contract.selections(actor.get(SELECTIONS, ''))
-    choices[str(weapon_contract.slot_number(slot))] = seed
-    encoded = weapon_contract.selection_json(choices)
-    rows = rows_for(actor, choices)
-    selected = [r for r in rows if int(r['slot']) == slot and r['mode'] == getattr(context.scene, STATE).mode]
-    if len(selected) != 1 or selected[0].get('resource_kind') != 'equipment':
-        raise ValueError('请选择角色的装备槽；固定配饰保持独立')
-    socket, created = attach(context, actor, selected[0], options, rows=rows, replace=True)
+    plan = assembly_for(actor, dict(slot=slot, mode=getattr(context.scene, STATE).mode), seed)
+    encoded = plan[-1]['equipment']
+    rows = rows_for(actor, encoded)
+    socket, created = attach(context, actor, plan[-1], options, plan=plan, replace=True)
     actor[SELECTIONS] = encoded
     state = getattr(context.scene, STATE)
     state.candidates.clear()
@@ -361,7 +368,7 @@ class RURI_OT_scan_weapon_catalog(bpy.types.Operator):
         try:
             for row in catalog_rows():
                 item = state.resources.add()
-                item.name = names_zh.weapon_label(row['asset'])
+                item.name = row.get('label', row['asset'])
                 item.seed, item.family, item.status = row['seed'], row['family'], row['status']
             self.report({'INFO'}, '已扫描 %d 个资源，请明确选择一项' % len(state.resources))
         except Exception as exc:

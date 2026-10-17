@@ -17,13 +17,12 @@ def functions(*names, **namespace):
 
 class CatalogContract(unittest.TestCase):
     def test_projection_keeps_source_identity_and_blocks_ambiguous_load(self):
-        f = functions('project', FAMILIES={'misc': '道具'},
-                      names_zh=SimpleNamespace(weapon_label=lambda s: '中文 · ' + s))
-        rows = [dict(seed='exact:' + status, asset='wpn_misc_1', family='misc',
+        f = functions('project', FAMILIES={'misc': '道具'})
+        rows = [dict(seed='exact:' + status, asset='wpn_misc_1', label='后端名称 · wpn_misc_1', family='misc',
                      status=status, routes=routes, basis='exact_prefab_container_route')
                 for status, routes in [('ready', 1), ('ambiguous_prefab', 2)]]
         result = f.project(rows)
-        self.assertEqual(result[0][:5], ['exact:ready', '中文 · wpn_misc_1', 'wpn_misc_1', '道具', 'misc'])
+        self.assertEqual(result[0][:5], ['exact:ready', '后端名称 · wpn_misc_1', 'wpn_misc_1', '道具', 'misc'])
         self.assertEqual(result[0][6], 'exact:ready')
         self.assertEqual(result[1][0], 'exact:ambiguous_prefab')
         self.assertEqual(result[1][6], '')

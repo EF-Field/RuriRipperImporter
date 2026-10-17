@@ -1,4 +1,4 @@
-"""Isolated synthetic Blender regression; zero reader, game or installed-addon access.
+"""Isolated synthetic Blender regression with the compiled private planner, no game access.
 
 Run factory-startup/background with --output after --. Imports the real weapon
 assembler and identity reader, while replacing only resource acquisition.
@@ -16,9 +16,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--addon-root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--deps', type=Path, required=True)
+    parser.add_argument('--backend', type=Path, required=True)
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
     args.output.mkdir(parents=True, exist_ok=True)
     sys.dont_write_bytecode = True
+    sys.path.insert(0, str(args.deps))
     import bpy
     from mathutils import Matrix, Euler, Vector
     assert bpy.app.background and bpy.app.build_hash == b'73cfbda0a06d'
@@ -40,7 +43,7 @@ def main():
     # An arbitrary shared host-facing turn, deliberately not a character patch.
     turn = Euler((0, 0, .73)).to_matrix().to_4x4()
     stub('Fixture.Kernel.statement', basis=lambda basis: {'root': SimpleNamespace(tolist=lambda: list(turn))})
-    datasets = stub('Fixture.Game.Endfield.datasets', WEAPONS='fixture.slots',
+    datasets = stub('Fixture.Game.Endfield.datasets', WEAPONS='fixture.slots', WEAPON_ASSEMBLY='fixture.plan',
                     WEAPON_CATALOG='fixture.catalog', WEAPON_MOUNTS='fixture.mounts')
     stub('Fixture.Game.Endfield.roster', STATE='ruri_roster')
     def module(name, path):
@@ -50,6 +53,12 @@ def main():
         spec.loader.exec_module(loaded)
         return loaded
     identity = module('Fixture.Host.Blender.rig_identity', 'Host/Blender/rig_identity.py')
+    reader = module('Fixture.Kernel.bridge.pythonnet_bridge', 'Kernel/bridge/pythonnet_bridge.py')
+    reader.set_bin_dir(str(args.backend))
+    reader._ensure_runtime()
+    from Ruri.RipperHook.AssetRipperGameHook.Endfield import WeaponAssemblyPlan, WeaponCatalog
+    from Ruri.RipperHook.BlenderBridge.Tables import TableBuilder
+    from System import Array, String, Double
     contract = module('Fixture.Game.Endfield.weapon_contract', 'Game/Endfield/weapon_contract.py')
     weapons = module('Fixture.Game.Endfield.Blender.weapons', 'Game/Endfield/Blender/weapons.py')
     for cls in weapons.CLASSES:
@@ -108,26 +117,45 @@ def main():
         # stub using the world setter concealed reversed rigid weapon imports.
         weapon.matrix_basis = turn @ authored
         imported.append(weapon)
-        if seeds[0] == 'fixture:FAIL':
+        if seeds[0] == 'fixture:fail':
             raise ValueError('Synthetic partial import failure')
         return SimpleNamespace(missing=[], warnings=[])
     loading.load = load
     def row(slot=7, **values):
         return dict(dict(character='fixture:character', slot=slot, mode='fight', visible=False,
-                         seed='fixture:A', weapon='fixture:A', bone='Grip', scale=.85, status='ready',
+                         seed='fixture:a', weapon='fixture:a', bone='Grip', scale=.85, status='ready',
                          config='fixture:config', resource_kind='equipment', mount_kind='character'), **values)
-    catalog = [dict(asset='Fixture A', seed='fixture:A', family='fixture', status='ready'),
-               dict(asset='Fixture B', seed='fixture:B', family='fixture', status='ready'),
-               dict(asset='Fixture FAIL', seed='fixture:FAIL', family='fixture', status='ready')]
+    catalog = [dict(asset='Fixture A', seed='fixture:a', family='fixture', status='ready'),
+               dict(asset='Fixture B', seed='fixture:b', family='fixture', status='ready'),
+               dict(asset='Fixture FAIL', seed='fixture:fail', family='fixture', status='ready')]
     requests = []
+    graph_rows = None
+    def private_plan(source, slot, mode, equipment):
+        columns = ['slot#', 'mode', 'status', 'seed', 'bone', 'scale#', 'mount_kind', 'target_slot#', 'weapon_mount#']
+        table = TableBuilder('fixture', Array[String](columns))
+        for r in source:
+            for column in columns:
+                name = column.rstrip('#')
+                table.Add(Double(r.get(name, -1))) if column.endswith('#') else table.Add(str(r[name]))
+        planned = WeaponAssemblyPlan.Select(table.Build(), slot, mode)
+        return [dict(next(r for r in source if r['slot'] == planned['slot'].Integer(i) and r['mode'] == mode), equipment=equipment)
+                for i in range(planned.RowCount)]
     def rows(dataset, **args):
         requests.append((dataset, args))
         if dataset == datasets.WEAPON_CATALOG:
             return catalog
-        if dataset == datasets.WEAPONS:
-            choices = contract.selections(args.get('equipment', ''))
-            seed = choices.get('7')
-            return [row(seed=seed or '', weapon=seed or '', status='ready' if seed else 'equipment_required')]
+        if dataset in (datasets.WEAPONS, datasets.WEAPON_ASSEMBLY):
+            try:
+                choices = (WeaponCatalog.Choose(args.get('equipment', ''), args['slot'], args['selection'])
+                           if 'selection' in args else WeaponCatalog.Selections(args.get('equipment', '')))
+                seed = choices[7] if choices.ContainsKey(7) else ''
+                if seed and seed not in {r['seed'] for r in catalog}:
+                    raise ValueError('Synthetic unavailable selection')
+                source = graph_rows if graph_rows is not None else [row(seed=seed, weapon=seed,
+                    status='ready' if seed else 'equipment_required')]
+                return private_plan(source, args['slot'], args['mode'], WeaponCatalog.Encode(choices)) if dataset == datasets.WEAPON_ASSEMBLY else source
+            except Exception as exc:
+                raise ValueError(str(exc)) from exc
         if dataset == datasets.WEAPON_MOUNTS:
             return mount_rows
         raise AssertionError(dataset)
@@ -159,21 +187,21 @@ def main():
     before_meshes = set(bpy.data.meshes)
     before_rigs = set(bpy.data.armatures)
     old_selection = actor[weapons.SELECTIONS]
-    reject(lambda: weapons.equip_selected(bpy.context, actor, 7, 'fixture:FAIL'), 'failed switch raises')
+    reject(lambda: weapons.equip_selected(bpy.context, actor, 7, 'fixture:fail'), 'failed switch raises')
     check(set(bpy.data.objects) == before and set(bpy.data.meshes) == before_meshes
           and set(bpy.data.armatures) == before_rigs, 'failed import cleans objects and data')
     check(actor[weapons.SELECTIONS] == old_selection and socket in bpy.data.objects[:],
           'failed switch retains old socket and explicit choice')
     check(actor.animation_data.action == actor_action, 'character action unchanged after failure')
-    new_socket, made = weapons.equip_selected(bpy.context, actor, 7, 'fixture:B')
+    new_socket, made = weapons.equip_selected(bpy.context, actor, 7, 'fixture:b')
     check(made and len([o for o in bpy.data.objects if o.get(weapons.OWNER) == actor]) == 1,
           'successful replacement leaves exactly one equipment socket')
-    check(contract.selections(actor[weapons.SELECTIONS]) == {'7': 'fixture:B'}, 'per-actor choice committed')
+    check(json.loads(actor[weapons.SELECTIONS]) == {'7': 'fixture:b'}, 'per-actor choice committed')
     reject(lambda: weapons.equip_selected(bpy.context, actor, 7, 'fixture:stale'), 'stale catalog rejected')
     unrelated = bpy.data.objects.new('User accessory', None)
     bpy.context.collection.objects.link(unrelated)
     unrelated.parent = new_socket
-    reject(lambda: weapons.equip_selected(bpy.context, actor, 7, 'fixture:A'), 'user-added objects protect replacement')
+    reject(lambda: weapons.equip_selected(bpy.context, actor, 7, 'fixture:a'), 'user-added objects protect replacement')
     unrelated.parent = None
 
     flat = lambda m: [v for line in m for v in line]
@@ -185,7 +213,8 @@ def main():
     parent = row(18, resource_kind='fixed', seed='fixture:P', scale=1)
     child = row(9, seed='fixture:C', bone='', status='cross_weapon_mount', mount_kind='weapon',
                 target_slot=18, weapon_mount=100, scale=.6)
-    child_socket, _ = weapons.attach(bpy.context, actor, child, rows=[child, parent])
+    graph_rows = [child, parent]
+    child_socket, _ = weapons.attach(bpy.context, actor, child)
     parent_socket = next(o for o in bpy.data.objects if o.get(weapons.OWNER) == actor and o.get(weapons.SLOT) == 18)
     parent_rig = next(o for o in parent_socket.children if o.type == 'ARMATURE')
     child_rig = next(o for o in child_socket.children if o.type == 'ARMATURE')
@@ -207,23 +236,27 @@ def main():
         check(error(actual, expected) < 1e-5, 'cross-weapon animated world transform frame %d' % frame)
         positions.append(actual.translation.copy())
     check((positions[-1] - positions[0]).length > 1e-4, 'child follows parent weapon animation')
-    reject(lambda: weapons.attach(bpy.context, actor, dict(parent, seed='fixture:other'), replace=True),
+    graph_rows = [dict(parent, seed='fixture:other')]
+    reject(lambda: weapons.attach(bpy.context, actor, parent, replace=True),
            'parent replacement protects dependent weapon')
     stable = set(bpy.data.objects)
     mount_rows.append(dict(mount_rows[0], source='fixture:second-component'))
-    reject(lambda: weapons.attach(bpy.context, actor, dict(child, slot=10), rows=[parent, dict(child, slot=10)]),
+    graph_rows = [parent, dict(child, slot=10)]
+    reject(lambda: weapons.attach(bpy.context, actor, dict(child, slot=10)),
            'duplicate component mount key rejected')
     check(set(bpy.data.objects) == stable, 'ambiguous mount rollback leaves scene intact')
     mount_rows.pop()
     graph_parent = dict(parent, slot=34, seed='fixture:new-parent')
-    graph_child = dict(child, slot=35, target_slot=34, seed='fixture:FAIL')
+    graph_child = dict(child, slot=35, target_slot=34, seed='fixture:fail')
     stable_meshes, stable_rigs = set(bpy.data.meshes), set(bpy.data.armatures)
-    reject(lambda: weapons.attach(bpy.context, actor, graph_child, rows=[graph_child, graph_parent]),
+    graph_rows = [graph_child, graph_parent]
+    reject(lambda: weapons.attach(bpy.context, actor, graph_child),
            'child import failure rejects whole dependency graph')
     check(set(bpy.data.objects) == stable and set(bpy.data.meshes) == stable_meshes
           and set(bpy.data.armatures) == stable_rigs, 'whole dependency graph rolls back including new parent')
     cyclic = dict(child, target_slot=9)
-    reject(lambda: weapons.attach(bpy.context, actor, cyclic, rows=[cyclic]), 'cycle rejected before import')
+    graph_rows = [cyclic]
+    reject(lambda: weapons.attach(bpy.context, actor, cyclic), 'cycle rejected before import')
     check(set(bpy.data.objects) == stable and actor.animation_data.action == actor_action, 'cycle preserves scene/action')
     check(unrelated.name in bpy.data.objects, 'unrelated user accessory survives')
 
@@ -246,6 +279,7 @@ def main():
             rigid_roots.append(root_obj)
         return SimpleNamespace(missing=[], warnings=[])
     with patch.object(loading, 'load', side_effect=load_rigid):
+        graph_rows = [row(77, seed='fixture:rigid')]
         rigid_socket, _ = weapons.attach(bpy.context, actor, row(77, seed='fixture:rigid'))
     target = actor.matrix_world @ actor.pose.bones['User renamed grip'].matrix
     for index, (root_obj, local) in enumerate(zip(rigid_roots, rigid_authored)):
@@ -261,13 +295,13 @@ def main():
     bpy.ops.wm.save_as_mainfile(filepath=str(args.output / 'synthetic-equipment.blend'))
     bpy.ops.wm.open_mainfile(filepath=str(args.output / 'synthetic-equipment.blend'), load_ui=False, use_scripts=False)
     actor = bpy.data.objects['Synthetic actor']
-    check(contract.selections(actor[weapons.SELECTIONS]) == {'7': 'fixture:B'}, 'selection persists across save/reopen')
+    check(json.loads(actor[weapons.SELECTIONS]) == {'7': 'fixture:b'}, 'selection persists across save/reopen')
     sockets = [o for o in bpy.data.objects if o.get(weapons.OWNER) == actor]
     check(len(sockets) == 3 and all(o.constraints[0].target for o in sockets), 'attachments persist across save/reopen')
     check(actor.animation_data.action is not None, 'character action persists')
     report = dict(blender=bpy.app.version_string, build_hash=bpy.app.build_hash.decode(),
                   addon_root=str(root),
-                  synthetic_only=True, reader_loaded=False, game_files_read=False,
+                  synthetic_only=True, reader_loaded=True, game_files_read=False,
                   checks=checks, passed=len(checks), requests=[name for name, args in requests],
                   boundary='Numerical host assembly/UI tests, not real weapon grip visual acceptance or game runtime parity.')
     (args.output / 'equipment-report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
