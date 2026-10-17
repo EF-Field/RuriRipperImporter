@@ -129,6 +129,11 @@ deletes the unchanged managed hierarchy, rejecting added/reparented members.
   import, exact material identity, native graphs, numeric FPS/time drivers,
   preservation of existing same-named materials and save/reopen. Resource paths
   are arguments, not public test fixtures. Background checks are not visual QA.
+- `tools/verify_weapon_state_browser_blender.py`: the state pane after a real
+  index scan, with populated/empty/refreshed lists and the state controls below
+  them. Its native target has no neutral `list` method: the shared catalog must
+  pass through the host layout renderer, rather than aborting after its search
+  bar. The previous unscanned UI fixture alone did not cover this branch.
 
 ### Native material effects (Blender)
 

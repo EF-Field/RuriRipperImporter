@@ -12,8 +12,9 @@ import bpy
 from bpy.props import EnumProperty, PointerProperty, StringProperty
 from mathutils import Matrix, Vector
 
-from ....Host.Blender import material_builder, materialise, material_panel, rig_identity
+from ....Host.Blender import material_builder, materialise, material_panel, render, rig_identity
 from ....Kernel.app import browser, loading
+from ....Kernel.app import layout as app_layout
 from .. import datasets, names_zh, weapon_catalog
 from . import weapons, weapon_effects
 
@@ -360,7 +361,12 @@ class RURI_OT_remove_weapon_state(bpy.types.Operator):
 
 
 def draw(layout, context):
-    weapon_catalog.draw(layout, context, verbs=False)
+    # This callback receives bpy.UILayout. The shared catalog describes a neutral
+    # layout (including its list); bridge it through the host renderer just like
+    # the ordinary Character/Weapon resource panes do.
+    description = app_layout.describe(
+        lambda described, ctx: weapon_catalog.draw(described, ctx, verbs=False), context)
+    render.draw(description, layout, context)
     state = getattr(context.scene, STATE)
     box = layout.box()
     box.prop(state, 'appearance')
