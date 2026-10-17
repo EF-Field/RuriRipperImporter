@@ -37,6 +37,7 @@ MATERIALS = "core.statement.materials"
 TEXTURES = "core.statement.textures"
 TEXTURE = "core.statement.texture"
 CLIPS = "core.statement.clips"
+SOURCE_SKELETON = "core.clip.source_skeleton"
 REPORT = "core.statement.report"
 
 #: Basis names the kernel converts geometry and transforms into. A host states
@@ -609,11 +610,29 @@ class Clip:
         return [channel for channel in self.channels if channel.kind == kind]
 
     @property
+    def bindings(self):
+        return sorted({channel.path for channel in self.channels
+                       if channel.kind in _CURVE_DIMENSIONS and channel.path})
+
+    @property
     def duration(self):
         return max((channel.duration for channel in self.channels), default=0.0)
 
     def __repr__(self):
         return "<Clip {0}>".format(self.name)
+
+
+def source_host(paths, near=""):
+    """The seed of the prefab rooted on the skeleton whose transform table covers these clip bindings
+    best, or "" when none does. ``near`` is the archive the clips came from."""
+    arguments = {"paths": list(paths)}
+    if near:
+        arguments["clip"] = near
+    table = session.table(SOURCE_SKELETON, **arguments)
+    try:
+        return table.cell(0, "host_seed") if table.row_count else ""
+    finally:
+        table.close()
 
 
 class Report:

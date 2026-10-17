@@ -11,7 +11,10 @@ flag, never by the shape of a name):
             one either -- it streams a window around the player. So these are
             imported one named PLACE at a time, at the size the game itself gives
             that place (供能高地 is x[-640..384] z[-128..896], its own published
-            rect), with a scale in case you want more or less of it.
+            rect), with a scale in case you want more or less of it. The place's map, as the
+            game's own map UI draws it, stands in the panel with the window outlined on it,
+            and a rectangle dragged over it narrows the window to that part -- which is how a
+            place larger than the machine holds is taken a piece at a time.
 
 A third half, ``UI``, browses the lit little stages an interface stands a model on
 and loads one AROUND a character already in the scene -- which is the one thing
@@ -31,6 +34,7 @@ from ...Kernel import host as host_port
 from ...Kernel.app import browser as app_browser
 from ...Kernel.app import command, filtering, loading
 from ...Kernel.app import layout as app_layout
+from ...Kernel.app import picture as app_picture
 from ...Kernel.app import schemas
 from ...Kernel.app.state import Field, Schema
 from ...Kernel.app import state as app_state
@@ -92,7 +96,14 @@ screen, what each half has selected, and how much of a place to take.""", (
           update="on_map_change"),
     Field("scale", app_state.FLOAT, 1.0, "Size",
           "How much of the place to take, against the size the game itself gives it. "
-          "1.0 is exactly that", minimum=0.1, soft_maximum=3.0),
+          "1.0 is exactly that. Changing it takes the whole place again, at this size",
+          minimum=0.1, soft_maximum=3.0, update="on_scale"),
+    Field("window_for", app_state.STRING, "",
+          description="The place the window below was picked for; empty when none was"),
+    Field("window_min_x", app_state.FLOAT, 0.0),
+    Field("window_min_z", app_state.FLOAT, 0.0),
+    Field("window_max_x", app_state.FLOAT, 0.0),
+    Field("window_max_z", app_state.FLOAT, 0.0),
     Field("scene_state_id", app_state.ENUM, None, "Scene State",
           "Which dressing of this world to read. States are alternates of the same "
           "place, so one at a time", items="state_items"),
@@ -131,12 +142,16 @@ def _map_name(state):
 
 def _rect(state):
     """The world rect to read. A self-contained scene is loaded whole; a place
-    inside a streaming map is loaded at the rect the game gives it, scaled."""
+    inside a streaming map is loaded at the rect the game gives it, scaled -- or at
+    the rectangle picked on its map, which is one place's and goes with that place."""
     if state.kind == SELF_CONTAINED:
         return scene_state.WHOLE
     entry = _selected(state)
     if entry is None:
         return None
+    if state.window_for == entry.key:
+        return app_picture.snapped(
+            (state.window_min_x, state.window_min_z, state.window_max_x, state.window_max_z), _cell(state))
     # The line the user is on IS the row: the rect is four of its own cells, read
     # off the view. Scanning a second copy of the list to find it again would be a
     # second statement of which row is selected.
@@ -146,7 +161,7 @@ def _rect(state):
                 float(stated["maxX"]), float(stated["maxZ"]))
     except (KeyError, TypeError, ValueError):
         return None
-    return scene_state.scaled(rect, state.scale)
+    return app_picture.snapped(scene_state.scaled(rect, state.scale), _cell(state))
 
 
 def _summary(state):
@@ -155,6 +170,13 @@ def _summary(state):
     VFS."""
     name = _map_name(state)
     return scene_state.SUMMARIES.get(name) if name else None
+
+
+def _cell(state):
+    """The side of the cells the map streams in, in world units: what a window can only be taken in whole
+    multiples of. 0 while the map's summary is not read."""
+    summary = _summary(state)
+    return summary["cell_size"] if summary is not None else 0
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +208,14 @@ def _on_filter_edit(state, context):
 def _on_selection(state, context):
     """Selecting a whole scene IS the intent to look at it, so its inventory is
     read then. A place inside a map needs nothing: its map's inventory was read
-    when the map was picked."""
+    when the map was picked -- except that the picker, if one is up, follows the selection."""
     if filtering.is_rebuilding():
         return
     if state.kind == SELF_CONTAINED:
         entry = _selected(state)
         if entry is not None:
             _read_summary(state, entry.key)
+    _sync_picker(state)
 
 
 def _on_map_change(state, context):
@@ -200,11 +223,16 @@ def _on_map_change(state, context):
     rebuild(state)
 
 
+def _on_scale(state, context):
+    state.window_for = ""
+    _sync_picker(state)
+
+
 HANDLERS = app_state.Handlers(
     "Endfield.scene", base=filtering.HANDLERS,
     kind_items=_kind_items, map_items=_map_items, state_items=_state_items,
     on_kind=_on_kind, on_filter_edit=_on_filter_edit, on_selection=_on_selection,
-    on_map_change=_on_map_change)
+    on_map_change=_on_map_change, on_scale=_on_scale)
 
 FILTER_SPEC = filtering.register_spec(filtering.FilterSpec(
     key=TAB_KEY, fields=BOUND.fields, state_for=state_of,
@@ -236,8 +264,9 @@ def rebuild(state):
     with filtering.rebuilding():
         if state.kind == UI_STAGE:
             BOUND.open(None, state)
-            return
-        BOUND.open(_table(state), state, standing=_standing(state))
+        else:
+            BOUND.open(_table(state), state, standing=_standing(state))
+    _sync_picker(state)
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +464,76 @@ RELIGHT = command.COMMANDS.define(
     failure="Re-lighting the level failed")
 
 
+def _has_picture(context):
+    state = state_of(context)
+    entry = _selected(state) if state.kind == STREAMING else None
+    return entry is not None and scene_state.picture_of(entry.key) is not None
+
+
+def _offer(context, state, entry, picture):
+    """Hand the host's one picker this place's map, with the window it starts from. What it picks goes to this place."""
+    key = entry.key
+
+    def accepted(where, rectangle):
+        chosen = state_of(where)
+        chosen.window_min_x, chosen.window_min_z, chosen.window_max_x, chosen.window_max_z = rectangle
+        chosen.window_for = key
+        chosen.status = "{0}: {1}, {2}. Read it to price it.".format(
+            picture.label, *app_picture.describe(rectangle, _cell(chosen)))
+
+    host_port.current().pick_rectangle(context, picture, _rect(state), accepted, _cell(state))
+
+
+def _pick(context, arguments):
+    """Let the user drag a rectangle over the selected place's map: that rectangle becomes the window."""
+    state = state_of(context)
+    entry = _selected(state)
+    picture = scene_state.picture_of(entry.key) if entry is not None else None
+    if picture is None:
+        state.status = "The map has not been read yet."
+        return {"CANCELLED"}
+    _offer(context, state, entry, picture)
+    return None
+
+
+def _sync_picker(state):
+    """Keep the one picker, if there is one, on the place that is selected: its map, and the window that place
+    starts from. A picker with nothing to pick on -- the selection left the places, or the map would not read --
+    ends. Nothing here starts one."""
+    host = host_port.current()
+    if host_port.RegionPicking not in host.capabilities or not host.picking():
+        return
+    entry = _selected(state) if state.kind == STREAMING else None
+    if entry is None:
+        host.stop_picking()
+        return
+    picture = scene_state.picture_of(entry.key)
+    if picture is None and not state.loading:
+        picture = scene_state.read_picture(entry.key, entry.label)
+    if picture is not None:
+        _offer(None, state, entry, picture)
+    elif scene_state.PICTURE_FOR == entry.key:
+        host.stop_picking()
+    else:
+        _want_picture(entry)
+
+
+def _whole(context, arguments):
+    state = state_of(context)
+    state.window_for = ""
+    _sync_picker(state)
+
+
+PICK = command.COMMANDS.define(
+    "ruri.endfield_scene_pick", "Pick On Map", _pick,
+    description="Drag a rectangle over the place's map to take only that part of it",
+    icon="BORDERMOVE", requires=host_port.RegionPicking, poll=_has_picture, internal=True)
+WHOLE = command.COMMANDS.define(
+    "ruri.endfield_scene_whole", "Whole Place", _whole,
+    description="Take the whole place again, at the size above",
+    icon="ZOOM_ALL", requires=host_port.RegionPicking, poll=_has_picture, internal=True)
+
+
 # ---------------------------------------------------------------------------
 # What it looks like
 # ---------------------------------------------------------------------------
@@ -523,6 +622,51 @@ def _draw_self_contained(layout, context, state):
     _draw_actions(layout, context, state, _selected(state) is not None)
 
 
+def _want_picture(entry):
+    """Ask for the map of the place on screen to be read once the redraw is over: a redraw must not touch the
+    VFS, and what it can do instead is say what it is waiting for."""
+    key = entry.key
+    if scene_state.PICTURE_ASKED == key:
+        return
+    scene_state.PICTURE_ASKED = key
+    label = entry.label
+    host = host_port.current()
+
+    def read():
+        if scene_state.PICTURE_ASKED != key:
+            return None
+        if state_of(None).loading:
+            return 0.5
+        scene_state.read_picture(key, label)
+        _sync_picker(state_of(None))
+        host.redraw()
+        return None
+
+    host.schedule(0.0, read)
+
+
+def _draw_map(layout, state, entry):
+    """The selected place's map with the window outlined on it, and the buttons that change the window."""
+    picture = scene_state.picture_of(entry.key)
+    if picture is None:
+        if scene_state.PICTURE_FOR == entry.key:
+            layout.label(text=scene_state.PICTURE_NOTE, icon="ERROR")
+        else:
+            _want_picture(entry)
+            layout.label(text="Reading the map...", icon="TIME")
+        return
+    window = _rect(state)
+    layout.picture(picture, window)
+    row = layout.row(align=True)
+    row.operator(PICK.id, icon="BORDERMOVE")
+    row.operator(WHOLE.id, text="", icon="ZOOM_ALL")
+    cell = _cell(state)
+    layout.label(text=app_picture.describe(window)[0], icon="EMPTY_AXIS")
+    if cell:
+        layout.label(text="{0:.0f} x {1:.0f} cells of {2:.0f} m".format(
+            (window[2] - window[0]) / cell, (window[3] - window[1]) / cell, cell), icon="GRID")
+
+
 def _draw_streaming(layout, context, state):
     """The open-world maps: pick a map, then one of the places the game itself
     names in it, at the size the game itself gives that place."""
@@ -543,6 +687,9 @@ def _draw_streaming(layout, context, state):
         box.label(text="+ {0} map-wide/dynamic chunk(s), {1:.0f} MB, bounded to the "
                        "selection".format(summary["floating_files"],
                                           summary["floating_bytes"] / 1048576.0))
+
+    if entry is not None and host_port.RegionPicking in host_port.current().capabilities:
+        _draw_map(layout, state, entry)
 
     size = layout.row(align=True)
     size.enabled = entry is not None

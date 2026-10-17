@@ -116,10 +116,26 @@ def load(context, seeds, options=None, report=None):
         return place(context, stated, options, report)
 
 
+#: Fewer bound transform paths than this share and a clip was written for another skeleton: a skeleton
+#: either is the one a clip was written for (or a variant of it that still binds nearly every path) or
+#: shares no more than the odd standard name with it.
+FOREIGN_SHARE = 0.05
+
+
+def _split_by_binding(clips, paths):
+    own, foreign = [], []
+    for clip in clips:
+        wanted = clip.bindings
+        landing = sum(1 for path in wanted if path in paths)
+        (foreign if wanted and landing < FOREIGN_SHARE * len(wanted) else own).append(clip)
+    return own, foreign
+
+
 def perform(context, seeds, rig=None, options=None, activate=False):
     """Put the performances these seeds carry onto a rig -- the one the caller names, else the one
     in front of the user. The curves arrive re-anchored on that rig's own bones and solved against
-    the avatar it carries, so what the host does is key them.
+    the avatar it carries, so what the host does is key them. A clip written for a skeleton the rig
+    is not binds to none of it and goes through :func:`_carry` instead.
 
     A face baked into a clip's bone tracks means nothing on another character's rig, so when the
     options ask for it and the game that owns the clips restates faces
@@ -136,8 +152,14 @@ def perform(context, seeds, rig=None, options=None, activate=False):
     if target is None:
         return 0, ["Select the rig to play onto first."]
     with statement(seeds, values) as stated:
-        clips = stated.clips(paths=host.rig_paths(target), avatar=host.rig_avatar(target))
-    landed, lines = host.play(context, target, clips, values, activate)
+        paths = host.rig_paths(target)
+        clips = stated.clips(paths=paths, avatar=host.rig_avatar(target))
+        own, foreign = _split_by_binding(clips, set(paths))
+        landed, lines = host.play(context, target, own, values, activate) if own or not foreign else ({}, [])
+        if foreign:
+            carried, said = _carry(context, stated, target, foreign, values, activate and not landed)
+            landed.update(carried)
+            lines.extend(said)
     restate = Game.face_retarget_of(values.get("source_game", "")) if values.get("retarget_face") else None
     if restate is not None:
         for clip in clips:
@@ -154,3 +176,35 @@ def perform(context, seeds, rig=None, options=None, activate=False):
                 except Exception as exc:
                     lines.append("Companion note: " + str(exc))
     return len(landed), lines
+
+
+def _carry(context, stated, target, clips, values, activate):
+    """Clips written for another skeleton: keyed on a stand-in rig of the skeleton the reader measures
+    each one was written for, carried across by the host, and the stand-in taken out again."""
+    host = host_port.current()
+    if not isinstance(host, host_port.Retarget):
+        raise RuntimeError("{0} cannot play clips written for another skeleton.".format(host.name))
+    sources = {}
+    for clip in clips:
+        seed = kernel_statement.source_host(clip.bindings, near=clip.archive)
+        if not seed:
+            raise LookupError("No prefab of this install is rooted on the skeleton {0} was written for.".format(clip.name))
+        sources.setdefault(seed, []).append(clip)
+    landed = {}
+    lines = []
+    for seed, group in sources.items():
+        with statement([seed], values) as source:
+            (key,) = source.skeletons
+            stand_in = host.stand_in_rig(context, source, key, values)
+        try:
+            keys = {clip.key for clip in group}
+            keyed = [clip for clip in stated.clips(paths=host.rig_paths(stand_in), avatar=host.rig_avatar(stand_in))
+                     if clip.key in keys]
+            built, played = host.play(context, stand_in, keyed, values, False)
+            carried, said = host.retarget(context, stand_in, target, values.get("source_game", ""), built,
+                                          activate and not landed)
+        finally:
+            host.discard_rig(context, stand_in)
+        landed.update(carried)
+        lines.extend(played + said)
+    return landed, lines

@@ -7,10 +7,10 @@ Blender and Substance Painter without either knowing the other exists.
 
 WHAT A HOST CAN DO is the set of protocols its driver derives from, and nothing
 else: a driver is a :class:`Host` and whichever of :class:`SceneGraph`,
-:class:`Compositor`, :class:`Rig`, :class:`Timeline`, :class:`MorphTargets`,
-:class:`NodeMaterials`, :class:`TextureCache`, :class:`TextureSets` and
-:class:`DisplaySettings` it can actually answer. :attr:`Host.capabilities` reads
-that back with ``isinstance``. There is no second list of capability names to
+:class:`Compositor`, :class:`Rig`, :class:`Timeline`, :class:`Retarget`,
+:class:`MorphTargets`, :class:`NodeMaterials`, :class:`TextureCache`,
+:class:`TextureSets`, :class:`DisplaySettings` and :class:`RegionPicking` it can actually answer.
+:attr:`Host.capabilities` reads that back with ``isinstance``. There is no second list of capability names to
 keep in step with the methods, and no method a host has to carry just to raise:
 a host that cannot pose a skeleton is not a :class:`Rig`, and every option,
 command, tab and section that names ``Rig`` is ABSENT there rather than broken.
@@ -359,6 +359,25 @@ class Timeline(abc.ABC):
         (position, quaternion, scale). Returns how many bones were posed."""
 
 
+class Retarget(abc.ABC):
+    """A host that plays a clip written for another skeleton by carrying it across the bone tables its
+    own add-ons keep. Also a :class:`Rig` and a :class:`Timeline`: the clip is keyed with the one
+    ``play`` on a stand-in for the skeleton it was written for."""
+
+    @abc.abstractmethod
+    def stand_in_rig(self, context, statement, skeleton_key, options):
+        """A rig for one skeleton of ``statement``, nothing drawn on it, until :meth:`discard_rig`."""
+
+    @abc.abstractmethod
+    def discard_rig(self, context, rig):
+        """A stand-in rig out of the document."""
+
+    @abc.abstractmethod
+    def retarget(self, context, source_rig, rig, source_name, performances, activate=False):
+        """The performances ``play`` landed on ``source_rig`` (by clip key), carried onto ``rig``;
+        ``source_name`` is what the install the clips came from calls itself. Returns (landed, lines)."""
+
+
 class MorphTargets(abc.ABC):
     """A host with morph targets, which a facial expression library drives."""
 
@@ -424,9 +443,34 @@ class DisplaySettings(abc.ABC):
     requirements for."""
 
 
+class RegionPicking(abc.ABC):
+    """A host whose user can drag a rectangle over a picture of the world: a map drawn in the panel,
+    and a way to point into it that is larger than the panel itself. There is never more than one
+    interaction: asking for another hands the one under way the new picture."""
+
+    @abc.abstractmethod
+    def pick_rectangle(self, context, picture, rectangle, done, snap=0.0):
+        """Hand the user ``picture`` (:class:`Kernel.app.picture.Picture`) to drag a rectangle over,
+        starting from ``rectangle`` -- world coordinates ``(min_x, min_z, max_x, max_z)``, or None --
+        and, where the world is made of cells ``snap`` on a side, out to the cells it meets.
+        ``done(context, rectangle)`` is called once with the rectangle they accepted and never when
+        they cancel. Returns at once: the interaction outlives this call. An interaction already
+        under way is handed all of this instead of a second one being made, and stays where it is
+        unless ``context`` is a user's action in another place; ``context`` is None where the call
+        answers a change of selection rather than a click."""
+
+    @abc.abstractmethod
+    def picking(self):
+        """Whether an interaction is under way."""
+
+    @abc.abstractmethod
+    def stop_picking(self):
+        """End the interaction under way, if there is one, as a cancel."""
+
+
 #: Every protocol a driver can answer, in the order a diagnostics surface lists them.
-PROTOCOLS = (SceneGraph, Compositor, Rig, Timeline, MorphTargets, NodeMaterials,
-             TextureCache, TextureSets, DisplaySettings)
+PROTOCOLS = (SceneGraph, Compositor, Rig, Timeline, Retarget, MorphTargets, NodeMaterials,
+             TextureCache, TextureSets, DisplaySettings, RegionPicking)
 
 _BOUND = []
 

@@ -28,6 +28,7 @@ jobs:
           python tools/test_find_animations.py
           python tools/test_weapon_ui_contract.py
           python tools/test_import_completion.py
+          python tools/test_upstream_sync.py
           python tools/test_weapon_equipment_contract.py
           python tools/test_weapon_assembly.py
           python tools/test_weapon_catalog.py

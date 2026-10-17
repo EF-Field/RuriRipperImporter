@@ -68,7 +68,6 @@ def _conversion():
         kernel_statement.basis(kernel_statement.BLENDER)["matrix"].tolist())
 
 
-SKELETON_PROP = "ruri_skeleton"
 PRESET_FOLDER = "AnimationRetarget"
 
 #: Shared role -> where a config keeps the bones that play it.
@@ -174,7 +173,7 @@ class BoneNames:
         preset states outright.
         """
         source = str(source or "")
-        dest = str(rig.get(SKELETON_PROP) or "") or rig_identity.source_of(rig)
+        dest = rig_identity.skeleton_of(rig)
         if not source or not dest:
             return cls({}, "")
         bones = {bone.name for bone in rig.data.bones}

@@ -21,7 +21,7 @@ from ...Kernel.app import layout as app_layout
 from ...Kernel.app import command as app_command
 from ...Kernel.app import state as app_state
 from ...Kernel import host as host_port
-from . import rna
+from . import picture_view, rna
 
 _ALIGNMENTS = {app_layout.LEFT: "LEFT", app_layout.CENTER: "CENTER",
                app_layout.RIGHT: "RIGHT", app_layout.EXPAND: "EXPAND"}
@@ -95,6 +95,9 @@ def render(node, target, context):
     elif kind == app_layout.PROGRESS:
         made = target
         target.progress(factor=spec["factor"], text=spec["text"], type="BAR")
+    elif kind == app_layout.PICTURE:
+        made = target
+        picture_view.draw(target, spec["picture"], spec["window"], context)
     elif kind == app_layout.NATIVE:
         made = target
         spec["draw"](target, context)
