@@ -17,7 +17,7 @@ class WeaponUIContract(unittest.TestCase):
         self.assertFalse(next(k.value.value for k in weapon.keywords if k.arg == 'requires_index'))
 
     def test_no_independent_weapon_panels(self):
-        for name, draw in [('weapons', 'draw_mount'), ('weapon_effects', 'draw_effects'),
+        for name, draw in [('weapons', 'draw_mount'), ('weapon_effects', 'draw_effects'), ('weapon_states', 'draw'),
                            ('weapon_glow', 'draw_glow')]:
             module = ast.parse((ROOT / f'Game/Endfield/Blender/{name}.py').read_text(encoding='utf-8'))
             self.assertTrue(any(isinstance(n, ast.FunctionDef) and n.name == draw for n in module.body))
@@ -29,9 +29,9 @@ class WeaponUIContract(unittest.TestCase):
         module = ast.parse((ROOT / 'Game/Endfield/weapon.py').read_text(encoding='utf-8'))
         panes = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign)
                      and any(isinstance(t, ast.Name) and t.id == 'PANES' for t in node.targets))
-        self.assertEqual([one[0] for one in panes], ['catalog', 'mount', 'effects', 'glow'])
+        self.assertEqual([one[0] for one in panes], ['catalog', 'states', 'mount', 'effects', 'glow'])
         self.assertEqual({one[0]: one[3] for one in panes},
-                         dict(catalog=3, mount=0, effects=1, glow=2))
+                         dict(catalog=3, states=4, mount=0, effects=1, glow=2))
         self.assertFalse(any(isinstance(n, (ast.Import, ast.ImportFrom)) and
                              ('bpy' in ast.unparse(n)) for n in module.body))
 

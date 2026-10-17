@@ -15,14 +15,16 @@ differently; it does not do it.
 
 
 def register():
-    from . import weapons, weapon_effects, weapon_glow
+    from . import weapons, weapon_effects, weapon_glow, weapon_states
     weapons.register()
     weapon_effects.register()
     weapon_glow.register()
+    weapon_states.register()
 
 
 def unregister():
-    from . import weapons, weapon_effects, weapon_glow
+    from . import weapons, weapon_effects, weapon_glow, weapon_states
+    weapon_states.unregister()
     weapon_glow.unregister()
     weapon_effects.unregister()
     weapons.unregister()

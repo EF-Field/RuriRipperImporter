@@ -98,7 +98,7 @@ _COLUMNS = (
 )
 
 
-def draw(layout, context):
+def draw(layout, context, verbs=True):
     state = state_of(context)
     command.draw_progress(layout, state)
     if not current(context):
@@ -116,7 +116,8 @@ def draw(layout, context):
     options = layout.column(align=True)
     options.enabled = picked is not None and bool(picked.payload)
     browser.draw_import_options(options, context)
-    cast_panel.draw_row_verbs(options, [picked.payload] if picked and picked.payload else [], STATE)
+    if verbs:
+        cast_panel.draw_row_verbs(options, [picked.payload] if picked and picked.payload else [], STATE)
     layout.label(text='材质与贴图自动加载；配饰／技能道具不代表可装备武器', icon='INFO')
 
 

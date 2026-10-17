@@ -91,6 +91,45 @@ existing socket intentionally preserves its current transforms and animation.
 
 ## Verification
 
+### Manual weapon resource states
+
+Weapon → 武器状态 → scan/select a weapon resource → choose 模型外观 and
+基质装饰 → 导入所选武器状态（新实例）. The two controls are independent:
+普通 / 满潜 (`_refined`) × 关闭 / `gemDeco` / `gemMaxDeco`. This is a resource
+selection UI, not a player-inventory, potential-level or matrix-matching evaluator.
+Each click creates a separate assembly and retains existing objects, materials,
+selection and timeline position. Missing refined prefabs explicitly fall back to
+the base resource. Missing/ambiguous config or material routes fail with rollback.
+
+The matching private backend states exact decoration materials and effect prefab
+paths from its resource configuration. Only source mesh-renderer names containing
+`_vfx_` receive the configured whole material array, in order. This source predicate
+is separate from artist-authored emission previews. The off state clears that
+array and hides those carriers; it does not disable the body's native shader.
+Effects are additional prefab instances, parented to the configured source
+Transform/bone with its basis-converted local offset. A missing mount uses the
+source root fallback and records a warning. Duplicate mounts are rejected.
+
+Native material graphs retain their textures, UV math, blending and parameters.
+Declared `_Time` inputs on the new assembly are driven from Blender frames and
+scene FPS/FPS base: `(t/20, t, 2t, 3t)`, including graph reconstruction after a
+file opens. Generated shader payload files are not modified. The optional
+配置键覆盖 selects an explicit alternate source config key; it is normally empty.
+No template-specific guess is inferred from a weapon name.
+
+Every assembly carries a JSON Text manifest of resolved sources, effect component
+declarations, mounts and warnings. Particle/procedural declarations are retained
+but are not particle/trail simulation. Those effects may therefore be incomplete;
+native mesh/material imports are not full game-render parity. 移除此状态实例 only
+deletes the unchanged managed hierarchy, rejecting added/reparented members.
+
+- `tools/verify_weapon_states_blender.py`: six synthetic combinations, exact
+  source-name binding, offsets, shared-mesh isolation, rollback and reopen/removal.
+- `tools/verify_weapon_states_real_blender.py`: opt-in private-resource six-state
+  import, exact material identity, native graphs, numeric FPS/time drivers,
+  preservation of existing same-named materials and save/reopen. Resource paths
+  are arguments, not public test fixtures. Background checks are not visual QA.
+
 ### Native material effects (Blender)
 
 Weapon → 材质光效 → choose the weapon root (or use 使用选中武器, which also

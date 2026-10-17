@@ -61,7 +61,7 @@ def main():
     assert [tab.id for tab in tabs] == ['streamingscene', 'character', 'weapon']
     assert tabs[1].requires_index and not tabs[2].requires_index
     assert not any(tab.id == 'weapon' for tab in Game.tabs_of('WutheringWaves'))
-    assert weapon.SECTIONS.keys() == ('mount', 'effects', 'glow')
+    assert weapon.SECTIONS.keys() == ('mount', 'effects', 'glow', 'states')
     for panel in ('RURI_PT_endfield_weapons', 'RURI_PT_endfield_effects',
                   'RURI_PT_endfield_weapon_glow', 'RURI_PT_endfield_shader_compat'):
         assert bpy.types.Panel.bl_rna_get_subclass_py(panel) is None
@@ -226,6 +226,7 @@ def main():
     report['legacy_pane_numbers_retained'] = True
     assert browser._active_filter_spec_key(bpy.context) == weapon_catalog.SPEC_KEY
     expected = {'catalog': 'ruri.weapon_resources_refresh',
+                'states': 'ruri.endfield_import_weapon_state',
                 'mount': 'ruri.endfield_read_weapons', 'effects': 'ruri.endfield_read_effects',
                 'glow': 'ruri.endfield_weapon_glow_scan'}
     for pane, operator in expected.items():
@@ -235,7 +236,11 @@ def main():
         operators = [call[1] for call in target.calls if call[0] == 'operator']
         assert operator in operators, (pane, target.calls, state.active_tab,
                                       browser.active_config(state), browser._tab_bar(state))
-        assert not any(other in operators for key, other in expected.items() if key != pane)
+        allowed = {pane, 'catalog'} if pane == 'states' else {pane}
+        assert not any(other in operators for key, other in expected.items() if key not in allowed)
+        if pane == 'states':
+            assert 'ruri.weapon_resources_refresh' in operators
+            assert all(('prop', key) in target.calls for key in ('appearance', 'deco', 'deco_key'))
         assert ('label', 'Build or load a cabmap to browse/import.') not in target.calls
         report['panes'].append(dict(pane=pane, operators=operators))
     state.active_tab = tabs[1].key
@@ -268,7 +273,7 @@ def main():
     from RuriRipperImporter.Game.Endfield import weapon as reloaded_weapon
     from RuriRipperImporter.Game.Endfield.Blender import weapons as reloaded_weapons
     from RuriRipperImporter.Kernel.app import loading as reloaded_loading
-    assert reloaded_weapon.SECTIONS.keys() == ('mount', 'effects', 'glow')
+    assert reloaded_weapon.SECTIONS.keys() == ('mount', 'effects', 'glow', 'states')
     assert reloaded_loading._import_listeners.count(reloaded_weapons.on_import) == 1
     addon.unregister()
     report['register_unregister_register'] = True
