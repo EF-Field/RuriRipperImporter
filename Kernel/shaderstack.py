@@ -2,7 +2,7 @@
 
 ``Ruri.RenderPipelines.Generator`` compiles one recipe per target and writes its
 output into this add-on. What it writes differs completely by target -- Blender
-gets node-group ``.blend`` libraries plus an inlined-manifest runtime module,
+gets node-group ``.blend`` libraries plus a runtime module and its manifest json,
 Painter gets GLSL plus a projection manifest -- but WHOSE it is does not: both
 are the same game's shading, projected onto a different host.
 
