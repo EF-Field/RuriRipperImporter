@@ -480,7 +480,7 @@ def apply_filter(query, rules=()):
     if BRIDGE is None or rows is None or len(rows) == 0:
         ACTIVE.VISIBLE = []
         return
-    found = BRIDGE.search_table((query or "").strip(), rules, ACTIVE._sort_column, ACTIVE._sort_dir)
+    found = BRIDGE.search_table(rows, (query or "").strip(), rules, ACTIVE._sort_column, ACTIVE._sort_dir)
     ACTIVE.VISIBLE = found[found < len(rows)].tolist()
 
 
