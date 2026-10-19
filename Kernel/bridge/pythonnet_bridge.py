@@ -633,15 +633,13 @@ class RipperBridge:
         if decoder != self._decoder_id or root != self._game_root or options != self._source_options:
             self.reinitialize(decoder, root, options)
 
-    #: The loaded map's own rows, as published. Held for the life of the map:
-    #: every search and every folder listing indexes into these row ids.
+    #: The loaded map's own rows, as published. Every search and every folder listing
+    #: indexes into these row ids, so whoever asked for them keeps the table it got.
     def enumerate_table(self):
         """The loaded cabmap as a column_table.ColumnTable, its display words
         already decided on the other side. One interop crossing, the buffers
         pinned rather than copied, nothing materialized per row."""
-        table = self.game_data("core.rows")
-        self._rows_table = table
-        return table
+        return self.game_data("core.rows")
 
     def folder_children(self, folder):
         """One virtual folder's child folders and how many rows are under each."""
@@ -666,12 +664,6 @@ class RipperBridge:
             return "", ""
         return str(table.cell(0, "folder")), str(table.cell(0, "leaf"))
 
-    def _rows_handle(self):
-        table = getattr(self, "_rows_table", None)
-        if table is None:
-            table = self.enumerate_table()
-        return table
-
     def _ordered(self, ids, sort_column, sort_direction):
         """Row ids in the order a display column puts them (direction 1 up, 2 down), or in load
         order when none is sorted -- ordered by the reader's own engine over its own ranks, never
@@ -682,12 +674,11 @@ class RipperBridge:
             "core.rows.order", payload=payload, column=str(sort_column or ""),
             direction=int(sort_direction)), dtype="<i4")
 
-    def search_table(self, query, rules=None, sort_column="name", sort_direction=0):
-        """Quick search + Include/Exclude rules + sort over the loaded cabmap,
-        matched on the reader's own engine. Returns the visible row ids as a
-        numpy int32 array, already sorted."""
+    def search_table(self, table, query, rules=None, sort_column="name", sort_direction=0):
+        """Quick search + Include/Exclude rules + sort over one cabmap's rows (the
+        table enumerate_table gave), matched on the reader's own engine. Returns the
+        visible row ids as a numpy int32 array, already sorted."""
         import numpy as np
-        table = self._rows_handle()
         payload = self.search_data_table(table, query or "", rules)
         ids = np.frombuffer(bytes(payload), dtype="<i4")
         return self._ordered(ids, sort_column, sort_direction)

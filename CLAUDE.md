@@ -1,7 +1,7 @@
 # Endfield fork routing (2026-10-17)
 
 - Work on Blender 5.3 / Statement `main`; preserve legacy 5.2 checkouts.
-- Game-specific parsing belongs to our private `Source/Endfield-GameHook` in
+- Game-specific parsing belongs to our private `Source/KWZE.GameHook` in
   `D:/Github/Ruri-Offline/BlenderPlugin/work/sync/backend-upstream`, not the
   removed upstream-private `Source/Ruri.GameHook` named in historical examples.
 - Preserve the generated shader bytes and keep handwritten tests/adapters outside
