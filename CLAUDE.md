@@ -1,3 +1,16 @@
+# Endfield fork routing (2026-10-17)
+
+- Work on Blender 5.3 / Statement `main`; preserve legacy 5.2 checkouts.
+- Game-specific parsing belongs to our private `Source/KWZE.GameHook` in
+  `D:/Github/Ruri-Offline/BlenderPlugin/work/sync/backend-upstream`, not the
+  removed upstream-private `Source/Ruri.GameHook` named in historical examples.
+- Preserve the generated shader bytes and keep handwritten tests/adapters outside
+  `Game/*/shader/`. Use isolated background checks, not automatic GUI scene launches.
+- Preserve installed files, preferences and accepted runtime snapshots. Background
+  success does not establish visual parity. Push only when explicitly requested.
+
+## Upstream engineering rules
+
 RuriRipperImporter 项目特化铁律:通用铁律继承 skill ruri-engineering-discipline,本文只放本仓特化;条款与用户指令冲突或本身错,先改本文再写代码。
 0. 只有一条数据流:行的 payload(种子)到 C# StatementSources(每个游戏一个回调,认领自己的种子)到 core.statement.*(节点、网格、骨架、材质、贴图、形态键、动画)到 Kernel/app/loading.py 的 load(放置)与 perform(动画)到 Host.materialise 与 Timeline.play。
 0.1 输入只有种子:一行能被导入是因为它 ColumnRole.Payload 列的值就是种子;面板里组合出来的选择(卡片 × 套装 × 槽位、地图 × 矩形 × 场景状态)也由 hook 拼出种子(发一张答案型数据集:{前缀}.chara.seed、endfield.scene.placement_counts 的 seed 列),py 侧一个前缀都不拼。

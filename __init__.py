@@ -33,7 +33,7 @@ bl_info = {
     "name": "RuriRipperImporter",
     "author": "ShiyumeMeguri",
     "version": (3, 0, 0),
-    "blender": (4, 2, 0),
+    "blender": (5, 3, 0),
     "location": "File > Import > Unity Asset, and 3D Viewport > N-panel > RuriRipper",
     "description": "Import a game install's models, materials, textures and animation "
                    "directly through an in-process bridge into Ruri.RipperHook -- "

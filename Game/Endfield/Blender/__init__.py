@@ -12,3 +12,23 @@ a face table, a set of ctrl weights -- and the host materialises it
 the camera a unit films through, a beat script. A texturing tool does not do that
 differently; it does not do it.
 """
+
+
+def register():
+    from ....Host.Blender import material_coverage
+    material_coverage.register_reader('Endfield', 'endfield.material.coverage')
+    from . import weapons, weapon_effects, weapon_glow, weapon_states
+    weapons.register()
+    weapon_effects.register()
+    weapon_glow.register()
+    weapon_states.register()
+
+
+def unregister():
+    from ....Host.Blender import material_coverage
+    material_coverage.unregister_reader('Endfield')
+    from . import weapons, weapon_effects, weapon_glow, weapon_states
+    weapon_states.unregister()
+    weapon_glow.unregister()
+    weapon_effects.unregister()
+    weapons.unregister()

@@ -61,6 +61,32 @@ def materialise(context, statement, options, report=None):
     return _Materialisation(context, statement, dict(options or {}), report).run()
 
 
+def materialise_indexed(context, statement, options, report=None):
+    """The same import, plus its source node indices for host-side companions.
+
+    Indices belong to this statement only; callers must not persist them as IDs.
+    """
+    writer = _Materialisation(context, statement, dict(options or {}), report)
+    built = writer.run()
+    return built, dict(writer.built)
+
+
+def materialise_mesh_asset(context, statement, mesh_key, material_keys, options, name):
+    """Place an exact loose mesh/material selection using the normal mesh writer."""
+    from types import SimpleNamespace
+    if mesh_key not in statement.meshes or any(key not in statement.materials for key in material_keys):
+        raise ValueError('Source mesh/material key missing: requested %s %s; meshes %s; materials %s'
+                         % (mesh_key, list(material_keys), list(statement.meshes), list(statement.materials)))
+    writer = _Materialisation(context, statement, dict(options or {}), None)
+    data = writer._mesh_data(SimpleNamespace(mesh=mesh_key, materials=list(material_keys), name=name))
+    if data is None:
+        raise ValueError('Source mesh has no decoded geometry')
+    made = bpy.data.objects.new(name, data)
+    context.collection.objects.link(made)
+    derived_state.announce(made)
+    return made
+
+
 def build_rig(context, statement, key, options=None):
     """One stated skeleton as an armature, nothing that draws with it, the active object and the
     selection left as they were."""

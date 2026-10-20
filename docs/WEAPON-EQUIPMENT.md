@@ -1,0 +1,249 @@
+# Weapon resources and optional equipment assembly
+
+## Standalone imports
+
+Weapon opens on **武器状态** by default. Like Character, its compact pane selector
+is followed by category, shared search/rules, the resource list, shared import
+options and Load/Reveal. Open an index, scan, select a row and Load; no character,
+equipment slot or mount is required. Materials and referenced textures use the
+ordinary import pipeline, including the selected Game Shaders setting. Scanning
+does not import anything or alter existing scene objects.
+
+The matching private reader publishes `endfield.weapon.resources`: exact top-level
+weapon prefab routes, including `misc` props/skill resources and unknown families.
+The latter are standalone source resources, not a claim of equipment eligibility.
+Ambiguous CAB routes stay visible with an empty load payload. Chinese display
+names preserve the technical name; full source paths and status remain searchable.
+Switching installs/reloading maps invalidates the displayed catalog for loading
+until it is scanned again. A failed scan also invalidates the prior catalog.
+
+Existing saved pane selections remain unchanged. Mount, effects and static glow
+remain separate panes; standalone import never steals the selected character.
+
+## Explicit equipment selection
+
+The Weapon / Mount pane now separates conventional equipment from fixed character
+resources. Use the matching private backend built with this feature.
+
+1. Open the install's existing resource index in the usual browser.
+2. Character imports automatically set Weapon's actor to the last successfully
+   imported rig. Its pointer-icon button selects that rig for subsequent character
+   actions; the actor picker can still be set manually. Read its weapon slots.
+3. Select an **equipment** slot, then scan the equipment catalog.
+4. Explicitly select a resource. Scanning selects nothing by default.
+5. Choose **装配／替换所选武器**. A successful replacement commits that character's
+   selection; an import failure keeps its previous weapon and choice.
+
+Choices live on each character, survive save/reopen and are supplied back to the
+reader as an explicit slot-to-prefab mapping. No live player loadout is read.
+Fixed props stay in their original slots and retain their own manual preview.
+
+The compact mount pane has no separate catalog heading/search field or redundant
+bottom preview notice. Chinese/internal resource labels remain unchanged. Following
+Character imports is independent of animation auto-sync, clears previous actor's
+slot/action candidates, and does not steal the target during weapon/prop imports.
+The shared import-completion notification carries only caller UI metadata and the
+host build result; it does not interpret seeds or change backend data parsing.
+
+## Catalog boundary
+
+The private backend enumerates exact prefab container paths from the loaded
+CabTable. It groups by full path and counts distinct CAB owners. Ambiguous routes
+remain visible but unselectable. Conventional known families are selectable;
+unknown families are explicitly unclassified. Misc props are not equipment rows.
+This catalog does not decode WeaponBasicTable, claim a table weapon ID, infer
+signature ownership, or validate in-game equipment-type restrictions. Display
+labels come from a provenanced private display-name snapshot and retain prefab
+asset names. Unknown resources keep their technical labels. There is no guessed
+signature recommendation. Character labels also come directly from the private
+roster table, with original technical labels retained for search; NPCs are unchanged.
+
+## Assembly contract
+
+The selected resource fills an equipment slot; the slot still owns its authored
+idle/fight mount and uniform scale. Resource state, mount state, default visibility
+and selection provenance are separate columns. Cross-weapon edges retain their
+target slot and mount key. Parents are prepared before children, with cycle and
+missing-dependency checks. Hidden dependencies are retained in this manual preview;
+this is not automatic gameplay visibility.
+
+The private reader owns this dependency plan and equipment validation through
+`endfield.weapon.assembly(seed, equipment, slot, mode, selection?)`. Blender sends
+the saved equipment JSON unchanged; the reader validates duplicate keys, slots,
+catalog availability and fixed-slot exclusions, then returns ordered source rows
+and a canonical `equipment` record. Blender performs scene assembly/rollback and
+persists that record only after success. Stale UI rows never override source rows.
+Use a matching backend; the frontend has no duplicate planner or name snapshot.
+
+Native material channel rules likewise come from the private reader's
+`endfield.material.channels` declarations. Blender supplies current graph fields
+and image bindings, reads live values and draws/writes through the existing
+material panel. Matching declarations persist with the material for offline
+reopen; new or changed graphs without a reader remain `UNKNOWN`. Explicit scans
+refresh the declarations. Artist previews and reference presets remain manual.
+
+Effect static-template preview consumes private `mesh_template` declarations;
+renderer modes, source-reference decoding and resource dependency planning stay
+in the backend. Missing preview references remain `UNKNOWN` without blocking
+ordinary source import; explicit template preview rolls back on failure. This
+does not add particle playback. Facial shader/shape targets likewise use neutral
+backend declarations, leaving actual Blender/RNA binding in the host.
+
+Character targets resolve through stamped rig identity. Cross-weapon mount keys
+resolve through authored component entries and exact transform paths, never a
+Handle/leaf-name guess. Multiple component entries for one key are ambiguous.
+An unrepresented target can carry source local transforms from its nearest
+represented ancestor bone; an unresolved/generated target fails explicitly.
+Independent/world mounts are not silently converted to a character hand bone.
+
+Column vectors, rightmost operation first:
+
+`weapon world = parent frame world * mount offset * slot scale * inverse(host root turn) * imported root`
+
+The ordinary import retains prefab transforms and the weapon's separate skeleton.
+Before reading imported root world matrices, the assembler evaluates Blender's
+dependency graph. The materialiser writes local transforms; reading an unevaluated
+world matrix can introduce an extra root turn, especially for rigid weapons.
+This assembly does not impose a weapon anchor, game skill timing or a per-character
+rotation correction. Old version-2 direct attachments remain reusable; replacing
+an untagged legacy tree or a tree with user-added objects requires manual review.
+Replacing a parent with dependent sockets is rejected instead of deleting them.
+
+Existing attachments are not silently rotated by the fix. If an old attachment
+was created with the stale-matrix defect, preserve the file, then remove that
+socket and its weapon objects and import the selected weapon again. Reusing an
+existing socket intentionally preserves its current transforms and animation.
+
+## Verification
+
+### Manual weapon resource states
+
+Weapon → 武器状态 → scan/select a weapon resource → choose 模型外观 and
+基质装饰 → 导入所选武器状态（新实例）. The two controls are independent:
+普通 / 满潜 (`_refined`) × 关闭 / `gemDeco` / `gemMaxDeco`. This is a resource
+selection UI, not a player-inventory, potential-level or matrix-matching evaluator.
+Each click creates a separate assembly and retains existing objects, materials,
+selection and timeline position. Missing refined prefabs explicitly fall back to
+the base resource. Missing/ambiguous config or material routes fail with rollback.
+
+This is the unified/default Weapon import entry. The duplicate 武器资源 pane was
+removed; the shared catalog/filter implementation remains underneath it. Old
+saved catalog selections (numeric 3) migrate to 武器状态 (4), while mount/effect/
+glow selections (0/1/2) keep their meanings. 普通 + 关闭 replaces the former
+ordinary weapon import without adding decoration.
+
+Only meaningful variable controls remain under the collapsed 高级导入设置:
+模型精度（LOD）, 保留阴影代理 and the explicit config-key override. LOD and
+shadow proxies reach the existing Statement reader unchanged. The state assembler
+requires inactive carriers, source empties/mounts and native shaders, so these
+are always enabled, not shown as switches that would be ignored. Animation
+discovery is off here; use the separate weapon actions workflow. Face retargeting
+and secondary-motion imports are off and not shown in this weapon-state entry.
+Other games and the ordinary Character import options are unchanged.
+
+The matching private backend states exact decoration materials and effect prefab
+paths from its resource configuration. Only source mesh-renderer names containing
+`_vfx_` receive the configured whole material array, in order. This source predicate
+is separate from artist-authored emission previews. The off state clears that
+array and hides those carriers; it does not disable the body's native shader.
+Effects are additional prefab instances, parented to the configured source
+Transform/bone with its basis-converted local offset. A missing mount uses the
+source root fallback and records a warning. Duplicate mounts are rejected.
+
+Native material graphs retain their textures, UV math, blending and parameters.
+Declared `_Time` inputs on the new assembly are driven from Blender frames and
+scene FPS/FPS base: `(t/20, t, 2t, 3t)`, including graph reconstruction after a
+file opens. Generated shader payload files are not modified. The optional
+配置键覆盖 selects an explicit alternate source config key; it is normally empty.
+No template-specific guess is inferred from a weapon name.
+
+Every assembly carries a JSON Text manifest of resolved sources, effect component
+declarations, mounts and warnings. Particle/procedural declarations are retained
+but are not particle/trail simulation. Those effects may therefore be incomplete;
+native mesh/material imports are not full game-render parity. 移除此状态实例 only
+deletes the unchanged managed hierarchy, rejecting added/reparented members.
+
+- `tools/verify_weapon_states_blender.py`: six synthetic combinations, exact
+  source-name binding, offsets, shared-mesh isolation, rollback and reopen/removal.
+- `tools/verify_weapon_states_real_blender.py`: opt-in private-resource six-state
+  import, exact material identity, native graphs, numeric FPS/time drivers,
+  preservation of existing same-named materials and save/reopen. Resource paths
+  are arguments, not public test fixtures. Background checks are not visual QA.
+- `tools/verify_weapon_state_browser_blender.py`: the state pane after a real
+  index scan, with populated/empty/refreshed lists and the state controls below
+  them. Its native target has no neutral `list` method: the shared catalog must
+  pass through the host layout renderer, rather than aborting after its search
+  bar. The previous unscanned UI fixture alone did not cover this branch.
+
+### Native material effects (Blender)
+
+Weapon → 材质光效 → choose the weapon root (or use 使用选中武器, which also
+scans) → click 开启/关闭 on the desired native channel. The first click prepares
+an object-local copy and actually toggles the channel; there is no separate
+preparation checkbox or apply step in the primary UI. Native parameter controls
+expand automatically after the action. Existing effect shaders have 调整原材质
+instead of a misleading universal emission toggle.
+Changing the target invalidates old rows. A target unlinked from the current
+scene is rejected, with an explicit selection button rather than a silent
+fallback to a different object or the whole character.
+The target covers its mesh descendants, not unrelated siblings. For an import
+with multiple separate roots, explicitly group those roots under a common empty
+and choose that empty to include the whole assembly.
+
+Discovery uses the owning generated stack's live interface and bound source
+images, not weapon/material name patterns. Native Emission and Parallax are
+separate controls even on one material. Prepare makes one object-local material
+copy per source while retaining its original switches, color/HDR, intensity,
+UV/sampler and shader math. Parameters use the shared material panel's guarded
+readback and original stack writer. No extra emission branch is added.
+Repeated prepare retains edits; 恢复武器原材质 restores the prior slot links.
+
+Existing effect-shader materials are listed separately, including ones without
+MainTex; depth-only/refraction shaders are not asserted to be emissive. They are
+opt-in for a local copy and retain their full native interface. Unclassified
+materials (including hidden geometry using a default material) are 待确认,
+never automatically brightened or assigned a guessed effect material. Visibility
+icons are direct Blender object controls, separate from material restoration.
+Scanning/preparing never changes object visibility.
+
+An unknown material's mesh has an explicit 手动发光预览 button. This is an
+artist-authored, object-local emission overlay, not a recovered game effect
+material. Clicking it creates/enables the preview and shows that mesh; clicking
+again disables it and restores its original viewport/render/layer visibility.
+Color and brightness are directly below the button. 原材质 restoration restores
+both bindings and preview visibility. Outside shared-mesh users stay unchanged.
+No names or potential-level conditions select the geometry or preview color.
+
+高级手动叠加 is collapsed by default and retains the old batch/artist tools, not a reconstruction of game
+effects. Native materials no longer also receive automatic grayscale overlays.
+To add an overlay after preparing a native-only copy, restore it first, add the
+manual region and prepare again. Existing saved overlays remain supported.
+No potential-level logic, animation events or runtime material replacement is
+implemented. Native graph control tests are not game-render/visual acceptance.
+
+- `tools/verify_weapon_channels_blender.py`: real generated-graph discovery,
+  source-preserving shared-mesh copies, native RNA writes, HDR, idempotence,
+  invalid scene targets, unknown hidden materials and saved-record reopening.
+
+- `tools/test_weapon_catalog.py`: standalone display projection, ambiguous load
+  payloads, map/install invalidation and shared-command/host-neutral contracts.
+- `tools/verify_weapon_catalog_blender.py`: isolated real-index scan, category and
+  search filtering, shared Load command, actual model/material/packed-texture
+  imports, filled-list RNA rendering and preservation of a character target.
+  Additional synthetic guards cover ambiguous rows and reader failures.
+- `tools/verify_weapon_catalog_reopen_blender.py`: a separate no-addon/no-autoexec
+  reopen verifies source pixels, mesh/material links and packed images. Neither
+  this nor the source-import test establishes final visual/game-render parity.
+- `tools/test_weapon_equipment_contract.py`: host-free synthetic contract checks.
+- `tools/test_import_completion.py`: import completion, exception isolation and
+  last-character selection without game/backend dependencies.
+- `tools/verify_weapon_ui_blender.py`: real Blender RNA, stepped import notifications,
+  compact row/removal contract, selection operator and register/unregister lifecycle.
+- `tools/verify_weapon_equipment_blender.py`: synthetic Blender 5.3 background
+  checks for the real operators, frame matrices, replacement/rollback, cross-weapon
+  animation, identity rename and save/reopen. No game reader or assets are opened.
+- Private `tests/Weapons`: synthetic catalog/choice tests and compilation against
+  the accepted reader API.
+
+Synthetic numerical tests are not real-character grip visual acceptance or proof
+of in-game compatibility. Test real imports manually before adopting the candidate.

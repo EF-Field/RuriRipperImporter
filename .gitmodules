@@ -1,0 +1,3 @@
+[submodule "Ruri.RipperHook"]
+	path = Ruri.RipperHook
+	url = https://github.com/KawakazeNotFound/Ruri.RipperHook.git

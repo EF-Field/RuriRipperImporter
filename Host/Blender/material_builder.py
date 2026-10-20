@@ -195,6 +195,16 @@ MATERIAL_COMPILES = extensions.point(
     "blender.material_compiles",
     "Compiling a shading stack's materials from their records.")
 
+# Handwritten, opt-in material companions run after source graphs are rebuilt.
+# Generated shader payloads remain untouched; each companion selects its own IDs.
+MATERIAL_FINALIZERS = extensions.point(
+    "blender.material_finalizers", "Restoring opt-in material companions after graph construction.")
+
+
+def finalize_material(material):
+    for callback in MATERIAL_FINALIZERS:
+        callback(material)
+
 #: Custom property stamped on every material this module or a stack builds.
 SOURCE_KEY_PROPERTY = "ruri_source_key"
 #: Marker on an image datablock: its colour space is already what the ASSET
@@ -520,6 +530,10 @@ def rebuild_plugin_data(purge):
     state = capability_state(bpy.context.scene)
     for material in compiled:
         material[CAPABILITY_STATE_PROPERTY] = state
+        try:
+            finalize_material(material)
+        except Exception as error:
+            failures.append("[material] companion {0}: {1}".format(material.name, error))
     declared = {name for provider in LEVEL_GLOBALS for name in provider()}
     for scene in bpy.data.scenes:
         kept = sorted(name for name in scene.keys() if name in declared)
@@ -1320,6 +1334,9 @@ class MaterialBuilder:
         made = self._build(stated)
         made[SOURCE_KEY_PROPERTY] = str(key)
         made[CAPABILITY_STATE_PROPERTY] = capability_state(bpy.context.scene)
+        from . import material_coverage
+        material_coverage.capture(made, stated, self.options)
+        finalize_material(made)
         self._by_key[key] = made
         _announce(made)
         return made

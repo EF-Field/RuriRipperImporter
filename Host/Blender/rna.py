@@ -32,7 +32,7 @@ _SUBTYPES = {
     app_state.FACTOR: "FACTOR",
 }
 
-def _enum_callback(handler):
+def _enum_callback(schema, field, handler):
     # Blender can still draw buttons pointing into a PREVIOUS callback result.
     # Keep every distinct catalog, not just the latest one. Equal catalogs reuse
     # the same list and strings, so ordinary redraws do not grow the cache.
@@ -100,7 +100,7 @@ def property_for(field, schema, handlers, built):
     if field.kind == app_state.ENUM:
         if isinstance(field.items, str):
             keywords["items"] = _enum_callback(
-                handlers.resolve(field.items, field, schema))
+                schema, field, handlers.resolve(field.items, field, schema))
         else:
             keywords["items"] = [tuple(entry) for entry in field.items]
         return EnumProperty(**keywords)

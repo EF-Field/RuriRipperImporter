@@ -54,19 +54,30 @@ SECTIONS = (
     GameSection("ui_scene", host_port.SceneGraph),
     GameSection("story", host_port.Timeline),
     GameSection("face", host_port.MorphTargets),
+    GameSection("weapon", host_port.Rig),
 )
 
 _LOADED = []
+_HOST_PROJECTION = None
 
 
 def _register():
+    global _HOST_PROJECTION
     _LOADED[:] = [importlib.import_module("." + one.id, __name__)
                   for one in SECTIONS if one.available]
     for module in _LOADED:
         module.register()
+    projection = __name__ + '.' + host_port.current().name
+    if importlib.util.find_spec(projection) is not None:
+        _HOST_PROJECTION = importlib.import_module(projection)
+        _HOST_PROJECTION.register()
 
 
 def _unregister():
+    global _HOST_PROJECTION
+    if _HOST_PROJECTION is not None:
+        _HOST_PROJECTION.unregister()
+        _HOST_PROJECTION = None
     for module in reversed(_LOADED):
         module.unregister()
     _LOADED[:] = []
@@ -112,6 +123,8 @@ GAME_MODULE = GameModule(
                 "its story animations, and the SkeletalMorph emotion/pose/lipsync "
                 "library",
                 ("character", "draw_tab")),
+        GameTab("weapon", "Weapon", "Standalone weapon resources, mounting, attack effect resources and static emission",
+                ("weapon", "draw_tab"), requires=host_port.Rig, requires_index=False),
     ),
     # A UI or cutscene clip carries its face in the BONE tracks, so importing one onto
     # another character needs the performance read off the geometry and restated in that

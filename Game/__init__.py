@@ -62,14 +62,17 @@ class GameTab:
     does not get the tab AT ALL -- not a disabled one. A control that exists but
     cannot work is worse than one that is honestly missing."""
 
-    __slots__ = ("id", "label", "description", "_draw", "requires", "owner")
+    __slots__ = ("id", "label", "description", "_draw", "requires", "requires_index", "owner")
 
-    def __init__(self, tab_id, label, description, draw, requires=None):
+    def __init__(self, tab_id, label, description, draw, requires=None, requires_index=True):
         self.id = tab_id
         self.label = label
         self.description = description
         self._draw = draw
         self.requires = requires
+        # Document controls can draw without a reader session; their read/import
+        # operators retain their own checks. Browsers default to needing an index.
+        self.requires_index = requires_index
         self.owner = None
 
     @property

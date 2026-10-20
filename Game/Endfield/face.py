@@ -85,9 +85,9 @@ reaches on this rig.""", (
 
 CHARACTER = Schema("EndfieldCharacter", """The face section's whole state.""", (
     Field("armature_name", app_state.STRING, "", "Rig"),
-    Field("character_token", app_state.STRING, "", "Character",
-          "Name fragment that marks this character's own facial animations in the "
-          "cabmap (e.g. \"pelica\")"),
+    Field("character_token", app_state.STRING, "", "Expression Scope",
+          "Expression-library token (e.g. pelica). A playable character id or "
+          "imported rig name is also accepted and normalized when scanned"),
     Field("face_morph", app_state.STRING, "", "Face Tables",
           "The face-morph avatar this rig's entity DECLARES (e.g. "
           "\"FacialMorph/Avatar/Boy/ardashir\"). Filled in from the game's own data "
@@ -152,9 +152,12 @@ def face_table(state):
     each one IS -- its name -- is the only identity shared across them."""
     base = {}
     deltas = {}
+    shapes, shaders = [], []
     for avatar in avatars_for(state):
-        if not avatar.mappings:
-            continue
+        for ctrl, mapping in avatar.blend_shapes.items():
+            shapes.append(dict(mapping, ctrl=ctrl))
+        for ctrl, mapping in avatar.shader_params.items():
+            shaders.append(dict(mapping, ctrl=ctrl))
         for entry in avatar.base_pose.values():
             if entry.bone_name:
                 base.setdefault(entry.bone_name,
@@ -165,7 +168,11 @@ def face_table(state):
                 if delta.bone_name:
                     merged.append((delta.bone_name, delta.position, delta.rotation,
                                    delta.scale))
-    return {"base": base, "deltas": deltas, "shape_rule": SHAPE_KEY_RULE}
+    return {"base": base, "deltas": deltas, "shape_rule": SHAPE_KEY_RULE,
+            "shape_index_mappings": shapes,
+            "shader_mappings": shaders,
+            "shader_identity_property": "ruri_uber_shader",
+            "renderer_mask_property": "ruri_renderer_mask"}
 
 
 #: The table last handed over, so the host's binding cache can tell one build from
@@ -398,6 +405,9 @@ def _suggest_token(armature_name):
              for entries in morph_state.LIBRARY.values() for entry in entries]
     if not names:
         return ""
+    candidate = identity.morph_scope(armature_name)
+    if candidate and any(candidate in name for name in names):
+        return candidate
     best, best_hits = "", 0
     for fragment in re.split(r"[^A-Za-z0-9]+", armature_name.lower()):
         if len(fragment) < 4 or fragment.isdigit():
@@ -426,13 +436,14 @@ def _scan(context, arguments):
     # game files that declaration under.
     if rig.name != state.armature_name:
         state.face_morph = ""
+        state.character_token = ""
     state.armature_name = rig.name
     state.face_morph = state.face_morph or identity.declared_face_morph(rig.name)
     # An npc rig names its own template, which is the EXACT key its per-line
     # dialogue assets are filed under. Guessing a name fragment instead picks
     # whichever fragment matches most, and for an npc that is its body-type word --
     # scoping the load to every sibling that shares it.
-    token = (state.character_token.strip()
+    token = (identity.morph_scope(state.character_token)
              or identity.npc_template(rig.name)
              or _suggest_token(rig.name))
     morph_state.discover(token)
@@ -459,6 +470,9 @@ def _load_library(context, arguments):
     anything is exported at all -- discovery above only read the cabmap's own
     tables."""
     state = state_of(context)
+    # Blender stores dynamic enums by index. Loading a new family inserts a
+    # tab before Emotions/Poses; preserve the actual tab identity, not its index.
+    section = state.section
     entries, dropped = morph_state.plan_load()
     cabs = morph_state.cabs_for(entries)
     if not cabs:
@@ -491,10 +505,17 @@ def _load_library(context, arguments):
                      "{2}{3}".format(len(missing), state.armature_name,
                                      ", ".join(missing[:4]),
                                      " ..." if len(missing) > 4 else ""))
+    if bound.get("unresolved_targets"):
+        lines.append("{0} non-bone target issue(s): {1}".format(
+            len(bound["unresolved_targets"]), "  ".join(bound["unresolved_targets"][:2])))
     state.status = ("{0} asset(s) parsed · {1} ctrl driver(s) · {2} bound on {3}".format(
         parsed, len(vocabulary), hits, state.armature_name or "this rig")
         + (" (" + via + ")" if via else "") + ". " + "  ".join(lines))
-    populate_items(state, context)
+    with filtering.rebuilding():
+        available = {key for key, _label, _description in _section_items(state, context)}
+        if section in available:
+            state.section = section
+        populate_items(state, context)
     populate_drivers(state, context)
 
 
@@ -570,9 +591,9 @@ def frames_of(asset, fps):
 
 
 def _build_actions(context, arguments):
-    """Bake the checked morph animations. Keyframes carry the game's own times and
-    weights on the shape-key half -- no resampling -- while the bone half is sampled
-    per frame, because a bone is the sum of every ctrl pushing it."""
+    """Bake checked morph animations. Independent shape keys retain source times;
+    shared/indexed keys, shader components and bone sums use per-frame samples.
+    Sampling resolves multi-ctrl contributions into one curve per host target."""
     state = state_of(context)
     host = host_port.current()
     rig = _rig(context, state)
@@ -592,9 +613,11 @@ def _build_actions(context, arguments):
         if asset is None or not asset.is_animated():
             skipped += 1
             continue
-        wrote = yield command.Read(
-            lambda _a=asset: host.bake_face(context, rig, table, tracks_of(_a),
-                                            frames_of(_a, fps), fps, _a.name), 0.9)
+        # Only sampling runs on a worker. The host writes bpy actions/pose bones
+        # and must be called between yields, on Blender's main thread.
+        tracks, frames = yield command.Read(
+            lambda _a=asset: (tracks_of(_a), frames_of(_a, fps)), 0.9)
+        wrote = host.bake_face(context, rig, table, tracks, frames, fps, asset.name)
         if wrote:
             built += 1
             playing = asset
@@ -723,6 +746,13 @@ def draw(layout, context):
     row.operator(APPLY.id, icon="PLAY")
     row.operator(CLEAR.id, icon="LOOP_BACK")
     controls.prop(state, "apply_on_click")
+    if 0 <= state.items_active_index < len(state.items):
+        asset = morph_state.ASSETS.get(state.items[state.items_active_index].asset)
+        if asset is not None and asset.kind == "emotion" and asset.settings:
+            controls.label(text="Emotion settings imported; Apply previews the static pose.", icon="INFO")
+            controls.label(text="Blink {0:g}s ± {1:g}s · speed {2:g} · lips {3}".format(
+                asset.settings.get("_blinkInterval", 0), asset.settings.get("_blinkIntervalRandomRange", 0),
+                asset.settings.get("_blinkSpeed", 1), asset.settings.get("_phonemePoseLipsType", 0)))
     _draw_phonemes(body, state)
 
 
@@ -817,7 +847,8 @@ def load_library_for(context, entry, facial_morph):
     if facial_morph and not state.face_morph:
         state.face_morph = facial_morph
     if entry is not None and not state.character_token:
-        state.character_token = str(getattr(entry, "key", "") or "")
+        state.character_token = identity.morph_scope(getattr(entry, "key", ""))
+        morph_state.CHARACTER_TOKEN = state.character_token
     return LOAD_LIBRARY.run(context, {})
 
 

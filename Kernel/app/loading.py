@@ -17,6 +17,34 @@ from . import texturing
 #: How one argument carries several seeds: one per line. A seed never spans lines.
 SEED_LINES = "\n"
 
+# Optional host/game companions (props, attachments). Notification happens only
+# after an activated performance landed. A companion never invalidates that import.
+_performance_listeners = []
+
+# UI companions observe completed imports, never interpret the statement or its
+# seeds. source_panel is optional caller metadata; direct loads leave it absent.
+_import_listeners = []
+
+
+def register_import_listener(callback):
+    if callback not in _import_listeners:
+        _import_listeners.append(callback)
+
+
+def unregister_import_listener(callback):
+    if callback in _import_listeners:
+        _import_listeners.remove(callback)
+
+
+def register_performance_listener(callback):
+    if callback not in _performance_listeners:
+        _performance_listeners.append(callback)
+
+
+def unregister_performance_listener(callback):
+    if callback in _performance_listeners:
+        _performance_listeners.remove(callback)
+
 
 def seeds_in(text):
     """The seeds a command argument carries."""
@@ -66,6 +94,12 @@ def place(context, stated, options=None, report=None):
             texture = textures.get(material.textures.get(name, ""))
             texturing.record(values.get("role_product", ""), name, material.name,
                              texture.name if texture is not None else "")
+    if built.imported:
+        for callback in tuple(_import_listeners):
+            try:
+                callback(context, built, dict(values))
+            except Exception as exc:
+                built.warnings.append("Import companion note: " + str(exc))
     return built
 
 
@@ -133,6 +167,14 @@ def perform(context, seeds, rig=None, options=None, activate=False):
                 said = restate(context, target, clip, values, landed[clip.key])
                 if said:
                     lines.append(said)
+    if activate and landed and not values.get("skip_companions"):
+        active_clip = next((clip for clip in clips if clip.key in landed), None)
+        if active_clip is not None:
+            for callback in tuple(_performance_listeners):
+                try:
+                    callback(context, target, active_clip, landed[active_clip.key], values)
+                except Exception as exc:
+                    lines.append("Companion note: " + str(exc))
     return len(landed), lines
 
 

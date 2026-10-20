@@ -335,7 +335,7 @@ def _draw_look(layout, context):
 LOOK_TAB = Game.GameTab("look", "Look",
                         "How the frame is finally shown: this game's own grading, and this "
                         "application's settings over what its shading stack built",
-                        _draw_look)
+                        _draw_look, requires_index=False)
 
 
 def _content_tabs(state):
@@ -1856,6 +1856,7 @@ def _load_steps(context, state, seeds, clips, reset_scene, panel=""):
     """Read the statement off the main thread, place it, then play the performances."""
     host = host_port.current()
     options = as_options(state)
+    options["source_panel"] = panel
     if reset_scene and host_port.SceneGraph in host.capabilities:
         host.clear_scene(context)
     stated = None
@@ -2330,10 +2331,11 @@ def draw(layout, context):
     tabs = layout.row(align=True)
     for key, label in _tab_bar(state):
         button = tabs.row(align=True)
-        button.enabled = state.loaded or key == LOOK_TAB.key
+        offered = next((tab for tab in _content_tabs(state) if tab.key == key), None)
+        button.enabled = state.loaded or (offered is not None and not offered.requires_index)
         button.operator(SELECT_TAB.id, text=label, depress=(key == active_key)).tab = key
 
-    if active is LOOK_TAB:
+    if active is not None and not active.requires_index:
         active.draw(layout, context)
         return
 

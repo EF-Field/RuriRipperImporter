@@ -1,5 +1,13 @@
 # RuriRipperImporter
 
+## 项目主线：Blender 5.3
+
+自 2026-10-13 起，`main` 是 Blender 5.3 / Statement 的开发和发布主线。
+`codex/blender-5.2` 保留为旧 ABI 兼容维护线，新功能默认进入 main。
+用户已手动验收模型、动作及当前检查的材质外观；特效暂缓，物理及其他角色继续分项验证。
+当前实测版本是 5.3 Alpha `73cfbda0a06d`，安装与导入由用户手动完成。
+详见 [迁移与验收记录](docs/MIGRATION53-ACCEPTANCE.md)。
+
 > # 🟦🟧 一个目录,同时是 Blender 插件和 Substance Painter 插件
 >
 > **装的是同一份代码。** Blender 从 `scripts/addons` 加载它,Substance Painter 从
@@ -17,11 +25,37 @@
 **指着游戏安装目录,把里面的角色和场景直接搬进你手上这个软件。**
 不导 FBX,不转格式,不用先开 Unity。
 
-基于 Blender **5.1+** 和 Substance Painter **12** 验证。
+当前生成着色栈要求 Blender **5.3+**；Substance Painter **12** 为上游验证版本。
+
+### 本分支的私有后端
+
+依赖采用三层结构：**公开插件 → 公开 `Ruri.RipperHook` 后端 → 私有
+`Endfield-GameHook` 子模块**。公开仓库只记录子模块地址和提交指针，
+不包含私有解密实现、私有 DLL 或游戏测试数据。
+
+```sh
+git submodule update --init Ruri.RipperHook
+# 下面这一步需要私有仓库访问权限：
+git -C Ruri.RipperHook submodule update --init Source/Endfield-GameHook
+```
+
+新版 Kernel/Host 插件的 **Bin Dir** 指向
+`Ruri.RipperHook/Source/Endfield-GameHook/statement-runtime` 目录。
+`runtime` 目录是旧接口版本，留给原有 Blender 5.2 安装，两者请勿混用。
+后端源码构建说明见 `Ruri.RipperHook/Source/Build/README.md`。
+其他来源仍按下方说明选择对应后端。公开发布包应排除私有子模块及其构建产物。
+
+本分支新增动作播放帧率同步：以动作自身采样率设置时间轴，避免 60 Hz 动作
+在 24 fps 场景中慢放。验证使用 Blender 5.3.0 Alpha；参考数据仅用于结果比较，
+不参与动作生成。具体范围见 `docs/STATEMENT-MIGRATION.md`。
 
 ---
 
 ## 装它
+
+本分支面向 Blender 5.3 的安装包由 **Actions → Package Blender Add-on** 生成。
+新用户请先阅读 [INSTALL.md](INSTALL.md)：插件 ZIP 与后端分开安装，公开后端
+PureRelease 和私有 Endfield 运行时是两种不同产物。
 
 ### 两边都要的一步
 
@@ -144,11 +178,12 @@ Avatar / AnimationClip,存成扁平 prefab。
 克隆时别忘了子模块:
 
 ```bash
-git clone --recurse-submodules https://github.com/ShiyumeMeguri/RuriRipperImporter.git
+git clone https://github.com/KawakazeNotFound/RuriRipperImporter.git
 ```
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init Ruri.RipperHook
 ```
 
-层界与规矩见 `CLAUDE.md`。
+在克隆目录内执行第二条命令。私有源码按上面的命令单独初始化；无需递归拉取
+后端所有上游私有模块。层界与规矩见 `CLAUDE.md`。

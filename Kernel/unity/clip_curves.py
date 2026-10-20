@@ -143,7 +143,8 @@ class Channel:
         if key_count == 1:
             return np.repeat(self.values[:1], n, axis=0)
 
-        segment = np.clip(np.searchsorted(times, sample_times) - 1, 0, key_count - 2)
+        # At a key itself the new value wins, including a constant/step segment.
+        segment = np.clip(np.searchsorted(times, sample_times, side="right") - 1, 0, key_count - 2)
         t0 = times[segment]
         dt = times[segment + 1] - t0
         degenerate = dt <= 1e-9
@@ -157,10 +158,17 @@ class Channel:
 
         v0 = self.values[segment]
         v1 = self.values[segment + 1]
-        m0 = self.out_slopes[segment] * dt[:, None]
-        m1 = self.in_slopes[segment + 1] * dt[:, None]
+        left_slope = self.out_slopes[segment]
+        right_slope = self.in_slopes[segment + 1]
+        constant = np.isinf(left_slope) | np.isinf(right_slope)
+        # Unity's constant tangent is encoded as infinity. Do not feed it into
+        # Hermite arithmetic (0*inf is NaN); the segment holds its left value.
+        m0 = np.where(constant, 0.0, left_slope) * dt[:, None]
+        m1 = np.where(constant, 0.0, right_slope) * dt[:, None]
         out = (h00[:, None] * v0 + h10[:, None] * m0
                + h01[:, None] * v1 + h11[:, None] * m1)
+        if constant.any():
+            out = np.where(constant, v0, out)
 
         if degenerate.any():
             out[degenerate] = v0[degenerate]

@@ -332,6 +332,33 @@ def _draw_row(column, properties, row):
         sub.prop(properties, _offset_attribute(row["name"]), text="偏移")
 
 
+def draw_subset(layout, material, names=None):
+    """Project existing graph controls without another RNA state or write path.
+
+    Used by focused host tools on an explicit material, independently of the
+    active object. Draw only schedules the same guarded readback as the panel.
+    """
+    entry = stack_of(material)
+    if entry is None:
+        layout.label(text="此材质没有可用的原生参数接口", icon='INFO')
+        return
+    if material.session_uid not in _SYNCED:
+        _sync_soon(material)
+        layout.label(text="正在回读原生参数……", icon='INFO')
+        return
+    properties = getattr(material, entry['property'])
+    wanted = None if names is None else set(names)
+    for group in rows_of(material, entry):
+        rows = [row for row in group['rows'] if wanted is None or row['name'] in wanted]
+        if not rows:
+            continue
+        column = layout.column(align=True)
+        if wanted is None:
+            column.label(text=group['name'])
+        for row in rows:
+            _draw_row(column, properties, row)
+
+
 def _draw_rig(box, stack, material, properties):
     """基座骨这一行。只在真用这座桥的 part 上出现(生成物答 None 就没有这一行)。
 
