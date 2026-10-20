@@ -12,7 +12,8 @@ Two Blender specifics this handles so no schema has to know them:
 * **A dynamic enum's items list must outlive the call.** Blender's callback
   hands its result to C, which keeps a pointer rather than a reference; a list
   that dies with the call leaves the enum pointing at freed strings. Every
-  returned list is therefore parked here, keyed by the field it belongs to.
+  distinct catalog is therefore retained by its callback for that callback's
+  entire lifetime, including catalogs superseded by a later refresh.
 * **An enum with no default.** ``default=`` must name one of the items, which a
   dynamic list cannot promise, so a schema that states none gets none.
 """
@@ -31,17 +32,20 @@ _SUBTYPES = {
     app_state.FACTOR: "FACTOR",
 }
 
-#: Last items list handed to Blender per (schema, field) -- see the module note.
-_enum_items = {}
-
-
-def _enum_callback(schema, field, handler):
-    key = (schema.name, field.key)
+def _enum_callback(handler):
+    # Blender can still draw buttons pointing into a PREVIOUS callback result.
+    # Keep every distinct catalog, not just the latest one. Equal catalogs reuse
+    # the same list and strings, so ordinary redraws do not grow the cache.
+    # The registered callback owns this cache: unregistering a different panel
+    # cannot clear it, and releasing this callback releases its catalogs too.
+    catalogs = {}
 
     def items(self, context):
         produced = handler(self, context) or ()
-        _enum_items[key] = [tuple(entry) for entry in produced] or [("", "", "")]
-        return _enum_items[key]
+        signature = tuple(tuple(entry) for entry in produced) or (("", "", ""),)
+        if signature not in catalogs:
+            catalogs[signature] = list(signature)
+        return catalogs[signature]
 
     return items
 
@@ -96,7 +100,7 @@ def property_for(field, schema, handlers, built):
     if field.kind == app_state.ENUM:
         if isinstance(field.items, str):
             keywords["items"] = _enum_callback(
-                schema, field, handlers.resolve(field.items, field, schema))
+                handlers.resolve(field.items, field, schema))
         else:
             keywords["items"] = [tuple(entry) for entry in field.items]
         return EnumProperty(**keywords)
@@ -170,7 +174,6 @@ class Registry:
     def unregister(self):
         for made in reversed(self.classes):
             bpy.utils.unregister_class(made)
-        _enum_items.clear()
 
 
 # ---------------------------------------------------------------------------
