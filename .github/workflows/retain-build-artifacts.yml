@@ -1,0 +1,114 @@
+# Preserve all artifacts belonging to the latest three successful artifact-producing runs.
+# Failed runs newer than the oldest retained success remain available for diagnosis.
+name: Retain latest three successful builds
+
+on:
+  workflow_run:
+    workflows: ["Package Blender Add-on"]
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+
+permissions:
+  actions: write
+
+concurrency:
+  group: artifact-retention
+  cancel-in-progress: false
+
+jobs:
+  prune-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retain latest three successful artifact-producing runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import urllib.request
+          
+          
+          def select_candidates(artifacts, runs):
+              active = [a for a in artifacts if not a.get('expired', False)]
+              by_run = {}
+              for artifact in active:
+                  run_id = artifact.get('workflow_run', {}).get('id')
+                  if run_id is None or run_id not in runs:
+                      raise RuntimeError('Artifact has no verified workflow run; refusing cleanup')
+                  by_run.setdefault(run_id, []).append(artifact)
+              successful = sorted(
+                  (runs[run_id] for run_id in by_run
+                   if runs[run_id]['status'] == 'completed'
+                   and runs[run_id]['conclusion'] == 'success'),
+                  key=lambda run: (run['created_at'], run['id']), reverse=True)
+              kept = successful[:3]
+              if len(kept) < 3:
+                  return kept, []
+              cutoff = (kept[-1]['created_at'], kept[-1]['id'])
+              candidates = [a for a in active
+                            if runs[a['workflow_run']['id']]['status'] == 'completed'
+                            and (runs[a['workflow_run']['id']]['created_at'],
+                                 a['workflow_run']['id']) < cutoff]
+              return kept, candidates
+          
+          
+          def main():
+              base = os.environ['GITHUB_API_URL'] + '/repos/' + os.environ['GITHUB_REPOSITORY']
+              headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                         'Accept': 'application/vnd.github+json',
+                         'X-GitHub-Api-Version': '2022-11-28'}
+          
+              def request(path, method='GET'):
+                  req = urllib.request.Request(base + path, headers=headers, method=method)
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      body = response.read()
+                      return json.loads(body) if body else None
+          
+              artifacts = []
+              page = 1
+              while True:
+                  batch = request(f'/actions/artifacts?per_page=100&page={page}')['artifacts']
+                  artifacts.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              active = [a for a in artifacts if not a.get('expired', False)]
+              runs = {}
+              for artifact in active:
+                  run_id = artifact.get('workflow_run', {}).get('id')
+                  if run_id is None:
+                      raise RuntimeError('Artifact has no workflow run; refusing cleanup')
+                  if run_id not in runs:
+                      runs[run_id] = request(f'/actions/runs/{run_id}')
+              kept, candidates = select_candidates(artifacts, runs)
+              print('Preserved successful artifact-producing runs:', [r['id'] for r in kept])
+              print('Older artifacts eligible for deletion:', [a['id'] for a in candidates])
+              deleted = []
+              for artifact in candidates:
+                  run_id = artifact['workflow_run']['id']
+                  latest = request(f'/actions/runs/{run_id}')
+                  snapshot = runs[run_id]
+                  # A rerun can upload fresh artifacts to an old run ID. Do not touch it.
+                  if (latest['status'] != 'completed'
+                          or latest.get('run_attempt') != snapshot.get('run_attempt')
+                          or latest.get('updated_at') != snapshot.get('updated_at')):
+                      print('Skipping changed or in-progress run:', run_id)
+                      continue
+                  request(f"/actions/artifacts/{artifact['id']}", 'DELETE')
+                  deleted.append(artifact['id'])
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                  summary.write('## Artifact retention\n')
+                  summary.write('Kept successful runs: ' + ', '.join(str(r['id']) for r in kept) + '\n\n')
+                  summary.write(f'Deleted {len(deleted)} older artifacts. ')
+                  summary.write('Newer failed runs and in-progress runs were preserved. ')
+                  summary.write('Code, releases, workflow runs, logs, and the existing age-based expiration policy were not changed.\n')
+          
+          
+          if __name__ == '__main__':
+              main()
+          PYTHON
